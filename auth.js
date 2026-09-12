@@ -27,6 +27,15 @@
   var SB_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   var PUSH_DELAY = 1500;
 
+  /* версия из своего же тега <script src="auth.js?v=N"> — тот же номер
+     вешаем на app.js, иначе GitHub Pages будет отдавать его из кэша
+     ещё десять минут после публикации */
+  var VER = (function () {
+    var el = document.currentScript;
+    var m = el && /[?&]v=([^&]+)/.exec(el.src || "");
+    return m ? m[1] : "";
+  })();
+
   var cfg = window.KOMBI_CONFIG || {};
   var URL_OK = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(String(cfg.SUPABASE_URL || "").trim());
   var KEY_OK = String(cfg.SUPABASE_ANON_KEY || "").trim().length > 30;
@@ -290,7 +299,7 @@
     var boot = $("authBoot");
     if (boot) boot.hidden = true;
     var s = document.createElement("script");
-    s.src = "app.js";
+    s.src = "app.js" + (VER ? "?v=" + VER : "");
     document.body.appendChild(s);
   }
 
