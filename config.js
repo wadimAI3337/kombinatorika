@@ -15,6 +15,6 @@
    ============================================================ */
 
 window.KOMBI_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: ""
+  SUPABASE_URL: "https://vsxlbvwpjllawuekrgls.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_vdHnjVf_d1B2sYQay8eFJQ_3h8jRNQ9"
 };
