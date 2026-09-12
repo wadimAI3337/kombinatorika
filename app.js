@@ -453,19 +453,34 @@ function engStart(){
         { type: "text/javascript" });
       w = new Worker(URL.createObjectURL(blob) + "#" + encodeURIComponent(new URL(wasm, location.href).href));
     } catch(e){ tryLoad(i + 1); return; }
-    let alive = false;
-    const fail = () => { if (!alive){ try{ w.terminate(); }catch(e){} tryLoad(i + 1); } };
+    /* Первый источник — локальный файл, которого обычно нет, поэтому
+       запасной путь через CDN штатно срабатывает почти сразу. Но таймаут
+       упавшего источника раньше продолжал тикать и через несколько секунд
+       запускал запасной путь второй раз: рождался ещё один Stockfish, и
+       два движка писали оценку в одно поле — отсюда скачущая глубина.
+       Поэтому переход к следующему источнику делаем ровно один раз. */
+    let alive = false, settled = false, timer = null;
+    const fail = () => {
+      if (alive || settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { w.terminate(); } catch(e){}
+      tryLoad(i + 1);
+    };
     w.onerror = fail;
-    setTimeout(() => { if (!alive) fail(); }, /^https?:/i.test(js) ? 40000 : 6000);
+    timer = setTimeout(fail, /^https?:/i.test(js) ? 40000 : 6000);
     w.onmessage = e => {
       const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
       if (!alive && /abort|RuntimeError|Failed to fetch|failed to load/i.test(s)){ fail(); return; }
       if (!alive && (s.indexOf("uciok") >= 0 || s.indexOf("Stockfish") >= 0)){
-        alive = true; eng = w; engSrcIdx = i; engState = "on";
+        if (settled || eng){ try { w.terminate(); } catch(e2){} return; }
+        alive = true; settled = true; clearTimeout(timer);
+        eng = w; engSrcIdx = i; engState = "on";
         send("setoption name MultiPV value 3");
         send("setoption name Hash value 64");
         send("ucinewgame"); searching = false; pendingFen = ""; anGo(); anRender();
       }
+      if (w !== eng) return;                      /* сообщение от чужого воркера */
       engLine(s);
     };
     w.postMessage("uci");
@@ -473,30 +488,50 @@ function engStart(){
   tryLoad(0);
 }
 const send = c => { if (eng) eng.postMessage(c); };
-function engStop(){ if (eng){ try{ eng.terminate(); }catch(e){} } eng = null; engState = "off"; searching = false; pendingFen = ""; anInfo = { depth:0, pvs:[] }; anRender(); }
+function engStop(){ if (eng){ try{ eng.terminate(); }catch(e){} } eng = null; engState = "off"; searching = false; pendingFen = ""; anInfo = { depth:0, pvs:[] }; anStage = { depth:0, pvs:[] }; anRender(); }
+
+/* Показываем только законченные глубины.
+
+   Stockfish по ходу поиска шлёт две вещи, которые оценкой позиции не
+   являются: строки с пометкой upperbound/lowerbound (промежуточные
+   прикидки внутри окна поиска, они улетают далеко в обе стороны) и
+   строки следующей глубины, когда соседние варианты ещё досчитаны на
+   предыдущей. Раньше всё это выводилось как есть — отсюда и скачущие
+   числа со стрелкой. Теперь копим глубину целиком и показываем её,
+   только когда движок начал считать следующую. */
+let anStage = { depth: 0, pvs: [] };
+
+function anCommit(){
+  if (!anStage.depth || !anStage.pvs.some(Boolean)) return;
+  anInfo = { depth: anStage.depth, pvs: anStage.pvs.slice() };
+  if (!anTimer) anTimer = setTimeout(() => { anTimer = null; anRenderEval(); }, 60);
+}
 
 function engLine(s){
   if (typeof s !== "string") return;
   if (s.indexOf("bestmove") === 0){
     searching = false;
+    anCommit();                                     /* досчитанная глубина */
     if (pendingFen){ const f = pendingFen; pendingFen = ""; startSearch(f); }
     return;
   }
   if (s.indexOf("info") !== 0 || s.indexOf(" pv ") < 0) return;
   if (searchFen !== st.fen) return;                 /* ответ от прошлой позиции */
+  if (s.indexOf(" upperbound") >= 0 || s.indexOf(" lowerbound") >= 0) return;
   const d = +(s.match(/ depth (\d+)/) || [])[1] || 0;
   const mp = +(s.match(/ multipv (\d+)/) || [])[1] || 1;
   const sc = s.match(/ score (cp|mate) (-?\d+)/);
   const pv = (s.split(" pv ")[1] || "").trim().split(/\s+/);
   if (!sc || !pv.length) return;
-  anInfo.depth = Math.max(anInfo.depth, d);
-  anInfo.pvs[mp - 1] = { kind: sc[1], val: +sc[2], pv, depth: d };
-  if (!anTimer) anTimer = setTimeout(() => { anTimer = null; anRenderEval(); }, 150);
+  if (d > anStage.depth){ anCommit(); anStage = { depth: d, pvs: [] }; }
+  else if (d < anStage.depth) return;               /* отставшая строка прошлой глубины */
+  anStage.pvs[mp - 1] = { kind: sc[1], val: +sc[2], pv, depth: d };
 }
 function startSearch(fen){
   if (!eng) return;
   searchFen = fen; searching = true;
   anInfo = { depth: 0, pvs: [] };
+  anStage = { depth: 0, pvs: [] };
   send("position fen " + fen);
   send("go depth 26");
   anRenderEval();
@@ -526,6 +561,7 @@ function anGo(){
   if (!st.an) return;
   anOver = anyLegal(st.fen) ? "" : (inCheckNow(st.fen) ? "мат" : "пат");
   anInfo = { depth: 0, pvs: [] };
+  anStage = { depth: 0, pvs: [] };
   if (!eng || anOver){ if (eng && searching){ pendingFen = ""; send("stop"); } anRenderEval(); return; }
   if (searching){ pendingFen = st.fen; send("stop"); }
   else startSearch(st.fen);
@@ -1322,19 +1358,28 @@ function rwLoad(){
           { type:"text/javascript" });
         w = new Worker(URL.createObjectURL(blob) + "#" + encodeURIComponent(new URL(wasm, location.href).href));
       } catch(e){ tryLoad(i + 1); return; }
-      let alive = false;
-      const fail = () => { if (!alive){ try{ w.terminate(); }catch(e){} tryLoad(i + 1); } };
+      let alive = false, settled = false, timer = null;
+      const fail = () => {                        /* один переход к следующему источнику */
+        if (alive || settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { w.terminate(); } catch(e){}
+        tryLoad(i + 1);
+      };
       w.onerror = fail;
-      setTimeout(() => { if (!alive) fail(); }, /^https?:/i.test(js) ? 45000 : 6000);
+      timer = setTimeout(fail, /^https?:/i.test(js) ? 45000 : 6000);
       w.onmessage = e => {
         const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
         if (!alive && /abort|RuntimeError|Failed to fetch|failed to load/i.test(s)){ fail(); return; }
         if (!alive && (s.indexOf("uciok") >= 0 || s.indexOf("Stockfish") >= 0)){
-          alive = true; rw = w; rwState = "on"; rwMulti = 0;
+          if (settled || rw){ try { w.terminate(); } catch(e2){} return; }
+          alive = true; settled = true; clearTimeout(timer);
+          rw = w; rwState = "on"; rwMulti = 0;
           w.postMessage("setoption name Hash value 64");
           w.postMessage("ucinewgame");
           resolve(true);
         }
+        if (w !== rw) return;                     /* сообщение от чужого воркера */
         rwLine(s);
       };
       w.postMessage("uci");
@@ -1354,11 +1399,16 @@ function rwLine(s){
     return;
   }
   if (s.indexOf("info") !== 0 || s.indexOf(" pv ") < 0) return;
+  /* по этой оценке размечаются ходы партии, поэтому промежуточные
+     прикидки внутри окна поиска брать нельзя — они не оценка позиции */
+  if (s.indexOf(" upperbound") >= 0 || s.indexOf(" lowerbound") >= 0) return;
   const d = +(s.match(/ depth (\d+)/) || [])[1] || 0;
   const mp = +(s.match(/ multipv (\d+)/) || [])[1] || 1;
   const sc = s.match(/ score (cp|mate) (-?\d+)/);
   const pv = (s.split(" pv ")[1] || "").trim().split(/\s+/);
   if (!sc || !pv.length || !pv[0]) return;
+  const had = rwJob.pvs[mp - 1];
+  if (had && had.depth > d) return;                 /* не затираем более глубокий расчёт */
   rwJob.depth = Math.max(rwJob.depth, d);
   rwJob.pvs[mp - 1] = { kind:sc[1], val:+sc[2], pv, depth:d };
   if (rwJob.onInfo) rwJob.onInfo(rwJob);
