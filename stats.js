@@ -171,11 +171,15 @@
     });
   }
 
-  /* deep — тянуть ли архив партий. Он у lichess жёстко ограничен
-     («не больше одного запроса за раз»), поэтому за историей ходим
-     раз в шесть часов, а текущий рейтинг снимаем с профиля всегда. */
-  function fetchLichess(user, days, deep) {
+  /* Берём /activity, а не экспорт партий. Экспорт lichess ограничивает
+     жёстко («не больше одного запроса за раз») и легко отвечает 429, весит
+     сотни килобайт и про задачи не знает вовсе. activity — один JSON на
+     пару килобайт, и в нём по каждому дню есть и партии с рейтингом
+     до/после, и решённые задачи с изменением рейтинга. */
+  function fetchLichess(user, days) {
     var u = encodeURIComponent(user);
+    var today = S.today(), fresh = {};
+
     return jget("https://lichess.org/api/user/" + u).then(function (p) {
       var perfs = p.perfs || {}, cur = {};
       ["bullet", "blitz", "rapid"].forEach(function (c) {
@@ -186,71 +190,69 @@
         cur.puzzleN = perfs.puzzle.games;
       }
 
-      var fromGames = {};
-      var finish = function () {
-        var today = S.today();
-        if (!days[today]) days[today] = {};
-        var slot = days[today].li || (days[today].li = {});
-        Object.keys(cur).forEach(function (c) {
-          if (!fromGames[c]) slot[c] = cur[c];   /* профиль главнее старого снимка */
-        });
-        return cur;
-      };
-      if (!deep) return finish();
-
-      var since = Date.now() - 45 * 86400000;
-      return jget("https://lichess.org/api/games/user/" + u +
-                  "?since=" + since + "&max=300&moves=false&pgnInJson=false",
-                  "application/x-ndjson")
-        .then(function (txt) {
-          var counted = {};
-          txt.split("\n").forEach(function (line) {
-            if (!line.trim()) return;
-            var g; try { g = JSON.parse(line); } catch (e) { return; }
-            var pl = g.players || {};
-            var side = (pl.white && pl.white.user && pl.white.user.name || "").toLowerCase()
-              === String(user).toLowerCase() ? pl.white : pl.black;
-            if (!side) return;
-            var k = key(new Date(g.lastMoveAt || g.createdAt));
+      return jget("https://lichess.org/api/user/" + u + "/activity")
+        .then(function (list) {
+          (list || []).forEach(function (e) {
+            var iv = e.interval || {};
+            if (!iv.start) return;
+            var k = key(new Date(iv.start));
             if (!days[k]) days[k] = {};
             var slot = days[k].li || (days[k].li = {});
-            if (!counted[k]) { slot.games = 0; counted[k] = true; }   /* пересчитываем с нуля */
-            var after = (side.rating || 0) + (side.ratingDiff || 0);
-            if (g.perf && after) slot[g.perf] = after;
-            slot.games = (slot.games || 0) + 1;
-            if (k === S.today() && g.perf) fromGames[g.perf] = true;
+
+            var n = 0;
+            Object.keys(e.games || {}).forEach(function (perf) {
+              var g = e.games[perf] || {};
+              n += (g.win || 0) + (g.loss || 0) + (g.draw || 0);
+              if (g.rp && g.rp.after) {
+                slot[perf] = g.rp.after;
+                if (k === today) fresh[perf] = true;
+              }
+            });
+            if (n) slot.games = n;
+
+            var sc = e.puzzles && e.puzzles.score;
+            if (sc) {
+              var solved = (sc.win || 0) + (sc.loss || 0) + (sc.draw || 0);
+              if (solved) slot.puzzlesDay = solved;
+              if (sc.rp && sc.rp.after) {
+                slot.puzzle = sc.rp.after;      /* свежее, чем рейтинг в профиле */
+                if (k === today) fresh.puzzle = true;
+              }
+            }
           });
         })
-        /* экспорт партий может не отдаться (частые запросы) — текущий рейтинг
-           из профиля всё равно запишем, историю доберём в следующий раз */
-        .then(function () { deepDone = true; })
         .catch(noteErr("lichess"))
-        .then(finish);
+        .then(function () {
+          if (!days[today]) days[today] = {};
+          var slot = days[today].li || (days[today].li = {});
+          Object.keys(cur).forEach(function (c) {
+            if (!fresh[c]) slot[c] = cur[c];
+          });
+          return cur;
+        });
     });
   }
 
-  var refreshing = false, deepDone = false;
+  var refreshing = false;
 
   function refresh(force) {
     if (refreshing) return Promise.resolve();
     var e = S.ext(), acc = e.accounts || {};
     if (!acc.lichess && !acc.chesscom) return Promise.resolve();
-    if (!force && e.fetchedAt && Date.now() - e.fetchedAt < 3600000) return Promise.resolve();
+    if (!force && e.fetchedAt && Date.now() - e.fetchedAt < 900000) return Promise.resolve();
 
     refreshing = true;
     paintRefresh();
     if (!root.classList.contains("gone")) render();
     var days = Object.assign({}, e.days || {});
     var jobs = [];
-    var deep = !e.liExportAt || Date.now() - e.liExportAt > 6 * 3600000;
-    deepDone = false;
-    if (acc.lichess)  jobs.push(fetchLichess(acc.lichess, days, deep).catch(noteErr("lichess")));
+    errors = [];
+    if (acc.lichess)  jobs.push(fetchLichess(acc.lichess, days).catch(noteErr("lichess")));
     if (acc.chesscom) jobs.push(fetchChesscom(acc.chesscom, days).catch(noteErr("chess.com")));
 
     return Promise.all(jobs).then(function () {
       e.days = days;
       e.fetchedAt = Date.now();
-      if (deepDone) e.liExportAt = Date.now();
       S.saveExt(e);
     }).then(function () {
       refreshing = false;
@@ -529,7 +531,7 @@
         '<div class="st-plot" id="stBars"></div>' +
       '</div>' +
       '<div class="st-card">' +
-        '<h3>Рейтинг</h3><p class="st-cap">История собрана из архива партий, поэтому видно и те дни, когда сюда не заходил.</p>' +
+        '<h3>Рейтинг</h3><p class="st-cap">Тянется с lichess и chess.com сама. Кружок — день, когда ты играл или решал; ровный участок — перерыв.</p>' +
         '<div class="st-bar"><div class="st-seg" id="stCtrl">' +
           '<button data-c="rapid" aria-pressed="true">Рапид</button>' +
           '<button data-c="blitz" aria-pressed="false">Блиц</button>' +
@@ -607,7 +609,6 @@
         drop.forEach(function (k) { delete e.days[d][k]; });
         if (!Object.keys(e.days[d]).length) delete e.days[d];
       });
-      if (drop.indexOf("li") >= 0) e.liExportAt = 0;
     }
 
     e.accounts = now;
@@ -625,7 +626,6 @@
     var e = S.ext();
     e.days = {};
     e.fetchedAt = 0;
-    e.liExportAt = 0;
     S.saveExt(e);
     errors = [];
     refresh(true);
@@ -653,6 +653,7 @@
     var sk = streak();
     var extToday = (e.days || {})[today] || {};
     var games = ((extToday.li || {}).games || 0) + ((extToday.cc || {}).games || 0);
+    var extPuzzles = (extToday.li || {}).puzzlesDay || 0;
     var delta = bestDelta(e.days || {});
 
     var tiles = [
@@ -661,7 +662,9 @@
       { lab: "Серия", num: sk, cls: sk ? "flame" : "",
         note: sk ? plural(sk, "день подряд", "дня подряд", "дней подряд") : "сегодня ещё не решал" },
       { lab: "Партий сегодня", num: games,
-        note: acc.lichess || acc.chesscom ? "lichess и chess.com" : "аккаунты не привязаны" },
+        note: !(acc.lichess || acc.chesscom) ? "аккаунты не привязаны"
+          : extPuzzles ? "и " + extPuzzles + " " + plural(extPuzzles, "задача", "задачи", "задач") + " на lichess"
+          : "lichess и chess.com" },
       delta && delta.v
         ? { lab: "Рейтинг за день", num: (delta.v > 0 ? "+" : "\u2212") + Math.abs(delta.v),
             cls: delta.v > 0 ? "up" : "down",
@@ -814,10 +817,12 @@
       var mine = (st[k] || {}).solved || 0;
       var ext = (days[k] || {});
       var gm = ((ext.li || {}).games || 0) + ((ext.cc || {}).games || 0);
+      var pz = (ext.li || {}).puzzlesDay || 0;          /* задачи, решённые на lichess */
       var future = d > new Date();
-      var total = mine + gm;
-      if (total > peak.n) peak = { n: total, k: k, mine: mine, gm: gm };
-      cells.push({ k: k, wd: (d.getDay() + 6) % 7, mine: mine, gm: gm, total: total, future: future });
+      var total = mine + gm + pz;
+      if (total > peak.n) peak = { n: total, k: k, mine: mine, gm: gm, pz: pz };
+      cells.push({ k: k, wd: (d.getDay() + 6) % 7, mine: mine, gm: gm, pz: pz,
+                   total: total, future: future });
     }
 
     /* пороги от собственного максимума, иначе один ударный день съест всю шкалу */
@@ -849,6 +854,7 @@
         el.addEventListener("mouseenter", function () {
           var parts = [];
           if (c.mine) parts.push(c.mine + " " + plural(c.mine, "задача", "задачи", "задач") + " здесь");
+          if (c.pz) parts.push(c.pz + " " + plural(c.pz, "задача", "задачи", "задач") + " на lichess");
           if (c.gm) parts.push(c.gm + " " + plural(c.gm, "партия", "партии", "партий"));
           tipAt(host, el, human(c.k), parts.length ? parts.join(" · ") : "ничего");
         });
@@ -861,12 +867,16 @@
     host.appendChild(grid);
 
     var cap = root.querySelector("#stMapCap");
-    cap.textContent = peak.n
-      ? "Задачи здесь и партии на обоих сайтах. Самый плотный день — " + human(peak.k) +
-        ": " + (peak.mine ? peak.mine + " " + plural(peak.mine, "задача", "задачи", "задач") : "") +
-        (peak.mine && peak.gm ? " и " : "") +
-        (peak.gm ? peak.gm + " " + plural(peak.gm, "партия", "партии", "партий") : "") + "."
-      : "Здесь будут видны дни занятий — и те, что пропущены.";
+    if (peak.n) {
+      var bits = [];
+      if (peak.mine) bits.push(peak.mine + " " + plural(peak.mine, "задача", "задачи", "задач") + " здесь");
+      if (peak.pz) bits.push(peak.pz + " " + plural(peak.pz, "задача", "задачи", "задач") + " на lichess");
+      if (peak.gm) bits.push(peak.gm + " " + plural(peak.gm, "партия", "партии", "партий"));
+      cap.textContent = "Задачи и партии — здесь и на обоих сайтах. Самый плотный день — " +
+        human(peak.k) + ": " + bits.join(", ") + ".";
+    } else {
+      cap.textContent = "Здесь будут видны дни занятий — и те, что пропущены.";
+    }
   }
 
   function tipAt(host, el, title, text) {
