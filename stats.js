@@ -296,7 +296,7 @@
   /* И задачи, и рейтинг — величины целые, дробных делений на шкале быть
      не должно. `span` задаёт минимальный размах: без него одна-единственная
      точка растягивает ось в «1819.5 · 1820 · 1820.5». */
-  function niceTicks(min, max, n, span) {
+  function niceTicks(min, max, n, span, zeroBased) {
     span = span || 1;
     if (max - min < span) {
       var mid = (min + max) / 2;
@@ -306,7 +306,9 @@
     var step = [1, 2, 2.5, 5, 10].map(function (s) { return s * mag; })
       .find(function (s) { return s >= raw; }) || 10 * mag;
     step = Math.max(1, Math.round(step));                 /* только целые деления */
-    var lo = Math.floor(min / step) * step, out = [];
+    /* счётчику отрицательная часть шкалы не нужна: при нуле задач ось
+       раскрывалась симметрично и деление «−1» вылезало под карточку */
+    var lo = zeroBased ? 0 : Math.floor(min / step) * step, out = [];
     for (var v = lo; v <= max + step / 2; v += step) out.push(Math.round(v));
     return out;
   }
@@ -314,9 +316,15 @@
   /* столбики: решённые задачи по дням */
   function barChart(host, rows) {
     host.innerHTML = "";
+    if (!rows.some(function (r) { return r.v; })) {
+      host.appendChild(emptyBox(
+        "Реши задачу в любом сборнике — и день появится на графике.",
+        "За этот период пусто"));
+      return;
+    }
     var W = widthOf(host);
     var H = 172, plotH = H - PADT - 26, max = Math.max(1, Math.max.apply(null, rows.map(function (r) { return r.v; })));
-    var ticks = niceTicks(0, max, 3, 3);
+    var ticks = niceTicks(0, max, 3, 3, true);
     var top = ticks[ticks.length - 1];
     var innerW = W - PADL - PADR;
     var step = innerW / rows.length;
@@ -654,11 +662,13 @@
         note: sk ? plural(sk, "день подряд", "дня подряд", "дней подряд") : "сегодня ещё не решал" },
       { lab: "Партий сегодня", num: games,
         note: acc.lichess || acc.chesscom ? "lichess и chess.com" : "аккаунты не привязаны" },
-      delta
-        ? { lab: "Рейтинг за день", num: (delta.v > 0 ? "+" : "") + delta.v,
-            cls: delta.v > 0 ? "up" : delta.v < 0 ? "down" : "",
+      delta && delta.v
+        ? { lab: "Рейтинг за день", num: (delta.v > 0 ? "+" : "\u2212") + Math.abs(delta.v),
+            cls: delta.v > 0 ? "up" : "down",
             note: delta.label }
-        : { lab: "Всего решено", num: t.solved, note: "из " + t.all + " задач" }
+        : delta
+          ? { lab: "Рейтинг за день", num: "—", note: "со вчера не изменился" }
+          : { lab: "Всего решено", num: t.solved, note: "из " + t.all + " задач" }
     ];
     var host = root.querySelector("#stTiles");
     host.innerHTML = "";
