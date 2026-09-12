@@ -141,6 +141,7 @@
         return jget("https://api.chess.com/pub/player/" + u + "/games/" + m)
           .catch(function () { return { games: [] }; });
       })).then(function (chunks) {
+        var today = S.today(), fromGames = {}, counted = {};
         chunks.forEach(function (ch) {
           (ch.games || []).forEach(function (g) {
             var me = (g.white && g.white.username || "").toLowerCase() === String(user).toLowerCase()
@@ -149,16 +150,21 @@
             var k = key(new Date(g.end_time * 1000));
             if (!days[k]) days[k] = {};
             var slot = days[k].cc || (days[k].cc = {});
+            if (!counted[k]) { slot.games = 0; counted[k] = true; }   /* пересчитываем с нуля */
             var cls = CC_CLASS[g.time_class];
             if (cls) slot[cls] = me.rating;                 /* последняя партия дня и есть итог */
             slot.games = (slot.games || 0) + 1;
+            if (k === today && cls) fromGames[cls] = true;
           });
         });
-        var today = S.today();
+
+        /* За сегодня профиль авторитетнее того, что лежит в хранилище:
+           иначе однажды попавшее туда чужое значение не перезапишется никогда.
+           Уступаем только сегодняшним партиям — они точнее. */
         if (!days[today]) days[today] = {};
-        days[today].cc = Object.assign({}, days[today].cc, cur, days[today].cc);
+        var slot = days[today].cc || (days[today].cc = {});
         Object.keys(cur).forEach(function (c) {
-          if (days[today].cc[c] == null) days[today].cc[c] = cur[c];
+          if (!fromGames[c]) slot[c] = cur[c];
         });
         return cur;
       });
@@ -180,12 +186,13 @@
         cur.puzzleN = perfs.puzzle.games;
       }
 
+      var fromGames = {};
       var finish = function () {
         var today = S.today();
         if (!days[today]) days[today] = {};
         var slot = days[today].li || (days[today].li = {});
         Object.keys(cur).forEach(function (c) {
-          if (slot[c] == null || c === "puzzle" || c === "puzzleN") slot[c] = cur[c];
+          if (!fromGames[c]) slot[c] = cur[c];   /* профиль главнее старого снимка */
         });
         return cur;
       };
@@ -196,6 +203,7 @@
                   "?since=" + since + "&max=300&moves=false&pgnInJson=false",
                   "application/x-ndjson")
         .then(function (txt) {
+          var counted = {};
           txt.split("\n").forEach(function (line) {
             if (!line.trim()) return;
             var g; try { g = JSON.parse(line); } catch (e) { return; }
@@ -206,9 +214,11 @@
             var k = key(new Date(g.lastMoveAt || g.createdAt));
             if (!days[k]) days[k] = {};
             var slot = days[k].li || (days[k].li = {});
+            if (!counted[k]) { slot.games = 0; counted[k] = true; }   /* пересчитываем с нуля */
             var after = (side.rating || 0) + (side.ratingDiff || 0);
             if (g.perf && after) slot[g.perf] = after;
             slot.games = (slot.games || 0) + 1;
+            if (k === S.today() && g.perf) fromGames[g.perf] = true;
           });
         })
         /* экспорт партий может не отдаться (частые запросы) — текущий рейтинг
@@ -229,6 +239,7 @@
 
     refreshing = true;
     paintRefresh();
+    if (!root.classList.contains("gone")) render();
     var days = Object.assign({}, e.days || {});
     var jobs = [];
     var deep = !e.liExportAt || Date.now() - e.liExportAt > 6 * 3600000;
@@ -282,13 +293,21 @@
     return el;
   }
 
-  function niceTicks(min, max, n) {
-    if (min === max) { min -= 1; max += 1; }
+  /* И задачи, и рейтинг — величины целые, дробных делений на шкале быть
+     не должно. `span` задаёт минимальный размах: без него одна-единственная
+     точка растягивает ось в «1819.5 · 1820 · 1820.5». */
+  function niceTicks(min, max, n, span) {
+    span = span || 1;
+    if (max - min < span) {
+      var mid = (min + max) / 2;
+      min = mid - span / 2; max = mid + span / 2;
+    }
     var raw = (max - min) / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
     var step = [1, 2, 2.5, 5, 10].map(function (s) { return s * mag; })
       .find(function (s) { return s >= raw; }) || 10 * mag;
+    step = Math.max(1, Math.round(step));                 /* только целые деления */
     var lo = Math.floor(min / step) * step, out = [];
-    for (var v = lo; v <= max + step / 2; v += step) out.push(Math.round(v * 1000) / 1000);
+    for (var v = lo; v <= max + step / 2; v += step) out.push(Math.round(v));
     return out;
   }
 
@@ -297,7 +316,7 @@
     host.innerHTML = "";
     var W = widthOf(host);
     var H = 172, plotH = H - PADT - 26, max = Math.max(1, Math.max.apply(null, rows.map(function (r) { return r.v; })));
-    var ticks = niceTicks(0, max, 3);
+    var ticks = niceTicks(0, max, 3, 3);
     var top = ticks[ticks.length - 1];
     var innerW = W - PADL - PADR;
     var step = innerW / rows.length;
@@ -353,7 +372,8 @@
     var H = 210, plotH = H - PADT - 26;
     var vals = [];
     live.forEach(function (s) { s.points.forEach(function (p) { if (p.v != null) vals.push(p.v); }); });
-    var ticks = niceTicks(Math.min.apply(null, vals), Math.max.apply(null, vals), 4);
+    /* размах меньше 40 очков смотреть неинтересно — разворачиваем шкалу шире */
+    var ticks = niceTicks(Math.min.apply(null, vals), Math.max.apply(null, vals), 4, 40);
     var lo = ticks[0], hi = ticks[ticks.length - 1];
     var innerW = W - PADL - PADR - 34;                       /* место под подпись у конца линии */
     var x = function (i) { return PADL + (dates.length < 2 ? innerW / 2 : (i / (dates.length - 1)) * innerW); };
@@ -393,7 +413,10 @@
       }
     });
 
-    var cross = svgEl("line", { class: "st-cross", y1: PADT, y2: PADT + plotH, x1: -9, x2: -9 });
+    /* перекрестие прячем display'ем, а не уводом за край: у svg включён
+       overflow:visible, и уехавшая линия торчала бы слева от графика */
+    var cross = svgEl("line", { class: "st-cross", y1: PADT, y2: PADT + plotH, x1: 0, x2: 0 });
+    cross.style.display = "none";
     svg.appendChild(cross);
 
     var band = svgEl("rect", { x: PADL, y: PADT, width: W - PADL - PADR, height: plotH, class: "st-hit" });
@@ -402,6 +425,7 @@
       var px = (ev.clientX - box.left) / box.width * W;
       var i = Math.max(0, Math.min(dates.length - 1,
         Math.round((px - PADL) / (innerW / Math.max(1, dates.length - 1)))));
+      cross.style.display = "";
       cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
       var rows = live.map(function (s) {
         var p = s.points[i];
@@ -412,7 +436,7 @@
       tip(host, x(i), PADT, W, rows, human(dates[i]));
     });
     band.addEventListener("mouseleave", function () {
-      cross.setAttribute("x1", -9); cross.setAttribute("x2", -9);
+      cross.style.display = "none";
       hideTip(host);
     });
     svg.appendChild(band);
@@ -528,7 +552,11 @@
             '<div class="st-row"><input id="stCc" placeholder="ник на chess.com" autocomplete="off" spellcheck="false"></div>' +
             '<div class="st-hint" id="stCcHint"></div></div>' +
         '</div>' +
-        '<div style="margin-top:14px"><button class="st-save" id="stSave">Сохранить и обновить</button></div>' +
+        '<div class="st-bar" style="margin-top:14px">' +
+          '<button class="st-save" id="stSave">Сохранить и обновить</button>' +
+          '<div class="st-sp"></div>' +
+          '<button class="st-tbtn" id="stWipe">Очистить и собрать заново</button>' +
+        '</div>' +
       '</div>';
 
     (document.querySelector(".wrap") || document.body).appendChild(root);
@@ -548,14 +576,48 @@
       errors = []; refresh(true);
     });
     root.querySelector("#stSave").addEventListener("click", saveAccounts);
+    root.querySelector("#stWipe").addEventListener("click", wipeExternal);
   }
 
+  /* Ник поменялся — собранная по нему история больше не наша. Если её не
+     выбросить, в графике останутся цифры от прежнего аккаунта: новые дни
+     допишутся, а старые так и будут висеть. */
   function saveAccounts() {
     var e = S.ext();
     e.accounts = e.accounts || {};
-    e.accounts.lichess  = root.querySelector("#stLi").value.trim();
-    e.accounts.chesscom = root.querySelector("#stCc").value.trim();
+    var was = { lichess: e.accounts.lichess || "", chesscom: e.accounts.chesscom || "" };
+    var now = {
+      lichess:  root.querySelector("#stLi").value.trim(),
+      chesscom: root.querySelector("#stCc").value.trim()
+    };
+
+    var drop = [];
+    if (now.lichess.toLowerCase()  !== was.lichess.toLowerCase())  drop.push("li");
+    if (now.chesscom.toLowerCase() !== was.chesscom.toLowerCase()) drop.push("cc");
+    if (drop.length) {
+      Object.keys(e.days || {}).forEach(function (d) {
+        drop.forEach(function (k) { delete e.days[d][k]; });
+        if (!Object.keys(e.days[d]).length) delete e.days[d];
+      });
+      if (drop.indexOf("li") >= 0) e.liExportAt = 0;
+    }
+
+    e.accounts = now;
     e.fetchedAt = 0;
+    S.saveExt(e);
+    errors = [];
+    refresh(true);
+  }
+
+  /* выбрасывает всё, что натянуто с lichess и chess.com, и собирает заново —
+     на случай, если в истории осели данные от прежнего ника */
+  function wipeExternal() {
+    if (!confirm("Удалить всё, что подтянуто с lichess и chess.com, и собрать заново?\n\n" +
+                 "Решённые здесь задачи и дневник активности не тронутся.")) return;
+    var e = S.ext();
+    e.days = {};
+    e.fetchedAt = 0;
+    e.liExportAt = 0;
     S.saveExt(e);
     errors = [];
     refresh(true);
@@ -646,6 +708,13 @@
 
     var plot = root.querySelector("#stLine");
     root.querySelector("#stToggleTable").textContent = state.table ? "Показать графиком" : "Показать таблицей";
+
+    if (refreshing) {
+      var busy = document.createElement("span");
+      busy.className = "st-busy";
+      busy.textContent = "обновляю…";
+      leg.appendChild(busy);
+    }
 
     if (!acc.lichess && !acc.chesscom) {
       plot.innerHTML = "";

@@ -147,3 +147,8 @@
 .st-maplg i[data-l="4"]{background:var(--accent)}
 .st-maplg span:first-child{margin-right:3px}
 .st-maplg span:last-child{margin-left:3px}
+
+.st-busy{color:var(--ink-3); font-size:12px}
+.st-busy::before{content:""; display:inline-block; width:9px; height:9px; margin-right:6px;
+  border-radius:50%; border:2px solid var(--line); border-top-color:var(--accent);
+  vertical-align:-1px; animation:authSpin .7s linear infinite}
