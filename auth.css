@@ -1,0 +1,83 @@
+/* ===== вход / регистрация / синхронизация ===== */
+
+.auth-back{position:fixed; inset:0; z-index:300; display:flex; align-items:center;
+  justify-content:center; padding:20px; background:rgba(20,15,8,.5);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px)}
+
+.auth-dlg{position:relative; width:100%; max-width:380px; background:var(--surface);
+  border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+  padding:26px 24px 22px}
+
+.auth-x{position:absolute; top:10px; right:12px; width:30px; height:30px; border-radius:8px;
+  font-size:20px; line-height:1; color:var(--ink-3)}
+.auth-x:hover{color:var(--ink); background:var(--surface-2)}
+
+.auth-dlg h2{font-family:"Literata",Georgia,serif; font-size:20px; margin:0 0 6px}
+.auth-lead{margin:0 0 16px; font-size:13px; line-height:1.5; color:var(--ink-2)}
+
+.auth-tabs{display:flex; gap:4px; padding:3px; margin-bottom:16px;
+  background:var(--surface-2); border-radius:9px}
+.auth-tabs button{flex:1; padding:7px 0; border-radius:7px; font-size:13.5px;
+  font-weight:600; color:var(--ink-2)}
+.auth-tabs button[aria-pressed="true"]{background:var(--surface); color:var(--ink);
+  box-shadow:0 1px 2px rgba(40,30,15,.1)}
+
+.auth-f{display:block; margin-bottom:12px}
+.auth-f span{display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+  margin-bottom:5px}
+.auth-f input{width:100%; padding:9px 11px; font:inherit; font-size:14px; color:var(--ink);
+  background:var(--bg); border:1px solid var(--line); border-radius:8px}
+.auth-f input:focus{outline:none; border-color:var(--accent)}
+
+.auth-msg{margin:0 0 12px; padding:9px 11px; border-radius:8px; font-size:12.5px;
+  line-height:1.45; background:var(--bad-bg); border:1px solid var(--bad-line); color:var(--bad)}
+.auth-msg.ok{background:var(--good-bg); border-color:var(--good-line); color:var(--good)}
+
+.auth-go{width:100%; padding:10px 0; border-radius:9px; font-size:14px; font-weight:700;
+  background:var(--accent); color:var(--accent-ink)}
+.auth-go:hover{filter:brightness(1.06)}
+.auth-go[disabled]{opacity:.55; cursor:default; filter:none}
+
+.auth-alt{margin-top:13px; text-align:center}
+.auth-alt button{font-size:12.5px; color:var(--ink-3); text-decoration:underline}
+.auth-alt button:hover{color:var(--ink-2)}
+
+/* кнопка в шапке */
+#authBtn{display:flex; align-items:center; gap:7px; max-width:190px}
+#authBtn .who{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#authBtn .dot{flex:none; width:6px; height:6px; border-radius:50%; background:var(--good)}
+#authBtn .dot.sync{background:var(--accent); animation:authPulse 1s ease-in-out infinite}
+#authBtn .dot.off{background:var(--ink-3)}
+@keyframes authPulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* меню под кнопкой */
+.auth-menu{position:absolute; top:calc(100% + 6px); right:0; z-index:60; min-width:220px;
+  padding:6px; background:var(--surface); border:1px solid var(--line);
+  border-radius:11px; box-shadow:var(--shadow)}
+.auth-menu .mail{padding:8px 10px 9px; font-size:12.5px; color:var(--ink-3);
+  border-bottom:1px solid var(--line-2); margin-bottom:5px; word-break:break-all}
+.auth-menu button{display:block; width:100%; text-align:left; padding:8px 10px;
+  border-radius:7px; font-size:13px; color:var(--ink-2)}
+.auth-menu button:hover{background:var(--surface-2); color:var(--ink)}
+
+/* заставка на время первой загрузки сохранений */
+.auth-boot{position:fixed; inset:0; z-index:400; display:flex; align-items:center;
+  justify-content:center; background:var(--bg)}
+.auth-boot-in{display:flex; align-items:center; gap:10px; font-size:14px; color:var(--ink-2)}
+.auth-boot-in i{width:14px; height:14px; border-radius:50%; border:2px solid var(--line);
+  border-top-color:var(--accent); animation:authSpin .7s linear infinite}
+@keyframes authSpin{to{transform:rotate(360deg)}}
+
+@media (max-width:640px){
+  #authBtn{max-width:120px}
+  #authBtn .who{display:none}
+}
+
+/* шапка на узких экранах: название отдельной строкой, кнопки под ним —
+   иначе они уезжают за край (кнопка входа добавляет ещё ширины) */
+@media (max-width:640px){
+  header.top{flex-wrap:wrap; row-gap:9px; padding:10px 14px; gap:8px}
+  header.top .brand{width:100%}
+  header.top .sp{display:none}
+  header.top .navbtn{padding:7px 10px; font-size:12.5px; white-space:nowrap}
+}

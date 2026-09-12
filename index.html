@@ -1,0 +1,1179 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html{color-scheme:light dark}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Комбинаторика</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,600;7..72,700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+
+<style>
+:root{
+  --bg:#F4F0E8; --surface:#FFFDF9; --surface-2:#EBE4D6;
+  --line:#DDD3C1; --line-2:#EAE2D3;
+  --ink:#1D1811; --ink-2:#605747; --ink-3:#8D8371;
+  --accent:#A2661F; --accent-ink:#FFF8EC; --accent-soft:#F0E0C6;
+  --good:#3D7A45; --good-bg:#E4F0E2; --good-line:#B8D6B4;
+  --bad:#B03A28;  --bad-bg:#F9E5E0;  --bad-line:#E8BFB4;
+  --shadow:0 1px 2px rgba(40,30,15,.06), 0 12px 28px -18px rgba(40,30,15,.4);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#141110; --surface:#1D1917; --surface-2:#262019;
+    --line:#352C24; --line-2:#2A231D;
+    --ink:#F3EDE3; --ink-2:#AEA394; --ink-3:#7D7365;
+    --accent:#E3A544; --accent-ink:#1B1305; --accent-soft:#3A2B14;
+    --good:#84B96D; --good-bg:#1C2A17; --good-line:#33502A;
+    --bad:#DE7A66;  --bad-bg:#2C1A16;  --bad-line:#54291F;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 14px 30px -20px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141110; --surface:#1D1917; --surface-2:#262019;
+  --line:#352C24; --line-2:#2A231D;
+  --ink:#F3EDE3; --ink-2:#AEA394; --ink-3:#7D7365;
+  --accent:#E3A544; --accent-ink:#1B1305; --accent-soft:#3A2B14;
+  --good:#84B96D; --good-bg:#1C2A17; --good-line:#33502A;
+  --bad:#DE7A66;  --bad-bg:#2C1A16;  --bad-line:#54291F;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 14px 30px -20px rgba(0,0,0,.9);
+}
+:root{
+  --sq-l:#F0D9B5; --sq-d:#B58863;
+  --hl-last:rgba(205,210,106,.62); --hl-sel:rgba(130,151,105,.75);
+  --hl-bad:rgba(200,60,40,.55); --hl-hint:#E2A340;
+}
+
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0; background:var(--bg); color:var(--ink);
+     font-family:"Manrope",-apple-system,Segoe UI,Roboto,sans-serif;
+     font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased}
+button{font:inherit; color:inherit; background:none; border:0; cursor:pointer}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:5px}
+.gone{display:none!important}
+
+.top{position:sticky; top:0; z-index:40; background:var(--bg);
+     border-bottom:1px solid var(--line); display:flex; align-items:center;
+     gap:14px; padding:11px 20px}
+.brand{font-family:"Literata",Georgia,serif; font-weight:700; font-size:17px;
+       display:flex; align-items:center; gap:9px; cursor:pointer}
+.brand .pip{width:12px; height:12px; background:var(--accent); border-radius:2px; transform:rotate(45deg)}
+.top .sp{flex:1}
+.gauge{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--ink-2)}
+.gauge .bar{width:88px; height:6px; background:var(--surface-2); border-radius:99px; overflow:hidden}
+.gauge .bar i{display:block; height:100%; background:var(--accent); border-radius:99px}
+.gauge b{color:var(--ink); font-variant-numeric:tabular-nums}
+.iconbtn{width:34px; height:34px; border-radius:8px; border:1px solid var(--line);
+         display:grid; place-items:center; background:var(--surface)}
+.iconbtn:hover{border-color:var(--ink-3)}
+.wrap{max-width:1180px; margin:0 auto; padding:24px 20px 70px}
+
+.crumb{display:flex; align-items:center; gap:9px; margin-bottom:16px;
+       font-size:13.5px; color:var(--ink-3); flex-wrap:wrap}
+.crumb button{color:var(--accent); font-weight:600}
+.crumb .sep{opacity:.5}
+h1{font-family:"Literata",Georgia,serif; font-weight:700; margin:0;
+   font-size:clamp(26px,3.6vw,36px); line-height:1.12; letter-spacing:-.02em; text-wrap:balance}
+h2{font-family:"Literata",Georgia,serif; font-weight:700; margin:0; font-size:26px}
+.pagehead{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:baseline; margin-bottom:20px}
+.pagehead .sub{color:var(--ink-3); font-size:13.5px}
+.spacer{flex:1}
+.ghost{padding:7px 13px; border:1px solid var(--line); border-radius:8px;
+       font-size:13px; font-weight:600; color:var(--ink-2); background:var(--surface)}
+.ghost:hover{border-color:var(--ink-3); color:var(--ink)}
+
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px 3px 8px;
+      border-radius:99px; font-size:12px; font-weight:700; border:1px solid var(--line);
+      color:var(--ink-3); background:var(--surface-2); white-space:nowrap}
+.pill svg{width:12px; height:12px; stroke:currentColor; stroke-width:3; fill:none}
+.pill.done{color:var(--good); background:var(--good-bg); border-color:var(--good-line)}
+.pill.hint{color:var(--accent); background:var(--accent-soft); border-color:var(--accent)}
+
+.hero{padding:10px 0 24px; border-bottom:1px solid var(--line); margin-bottom:24px}
+.hero p{margin:10px 0 0; color:var(--ink-2); max-width:62ch; font-size:15.5px}
+
+.books{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:16px}
+.book{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+      padding:16px; display:grid; grid-template-columns:120px 1fr; gap:16px;
+      text-align:left; box-shadow:var(--shadow); transition:border-color .15s, transform .15s}
+.book:hover{border-color:var(--accent); transform:translateY(-2px)}
+.book .thumb{border-radius:9px; overflow:hidden; line-height:0; border:1px solid var(--line-2); align-self:start}
+.book .body{display:flex; flex-direction:column; gap:6px; min-width:0}
+.book h3{font-family:"Literata",serif; font-size:19px; margin:0; font-weight:700; line-height:1.25}
+.book .meta{font-size:13px; color:var(--ink-3); margin:0}
+.book .prog{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ink-2); margin-top:8px}
+.book .prog .bar{flex:1; height:5px; background:var(--surface-2); border-radius:99px; overflow:hidden}
+.book .prog .bar i{display:block; height:100%; background:var(--accent)}
+.book .prog b{font-variant-numeric:tabular-nums; color:var(--ink)}
+
+.cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:16px}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+      padding:14px; display:flex; flex-direction:column; gap:11px; text-align:left;
+      box-shadow:var(--shadow); transition:border-color .15s, transform .15s}
+.card:hover{border-color:var(--accent); transform:translateY(-2px)}
+.card .thumb{border-radius:9px; overflow:hidden; line-height:0; border:1px solid var(--line-2)}
+.card h3{font-family:"Literata",serif; font-size:18px; margin:0; font-weight:600}
+.card .sub{font-size:13px; color:var(--ink-3); margin:-5px 0 0}
+.card .prog{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ink-2)}
+.card .prog .bar{flex:1; height:5px; background:var(--surface-2); border-radius:99px; overflow:hidden}
+.card .prog .bar i{display:block; height:100%; background:var(--accent)}
+.card .prog b{font-variant-numeric:tabular-nums; color:var(--ink)}
+
+.filters{display:flex; gap:6px}
+.filters button{padding:6px 13px; border-radius:99px; border:1px solid var(--line);
+                font-size:13px; font-weight:600; color:var(--ink-2); background:var(--surface)}
+.filters button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+
+.rows{display:grid; grid-template-columns:repeat(auto-fill,minmax(345px,1fr)); gap:12px}
+.row{background:var(--surface); border:1px solid var(--line); border-radius:13px;
+     padding:12px; display:grid; grid-template-columns:100px 1fr; gap:14px;
+     align-items:center; text-align:left; box-shadow:var(--shadow);
+     transition:border-color .15s, transform .15s}
+.row:hover{border-color:var(--accent); transform:translateY(-1px)}
+.row.done{border-color:var(--good-line)}
+.row .thumb{border-radius:8px; overflow:hidden; line-height:0; border:1px solid var(--line-2)}
+.row .rb{display:flex; flex-direction:column; align-items:flex-start; gap:5px; min-width:0}
+.row .num{font-family:"Literata",serif; font-size:18px; font-weight:700}
+.row .who{font-size:12.5px; color:var(--ink-3)}
+.row .open{font-size:13px; font-weight:700; color:var(--accent); margin-top:2px}
+
+.pager{display:flex; gap:8px; justify-content:center; align-items:center; margin-top:24px; font-size:14px}
+.pager button{padding:8px 14px; border:1px solid var(--line); border-radius:8px;
+              background:var(--surface); font-weight:600}
+.pager button:disabled{opacity:.4; cursor:default}
+.pager span{color:var(--ink-3); font-variant-numeric:tabular-nums}
+
+.solve{display:grid; grid-template-columns:minmax(0,1fr) 350px; gap:22px; align-items:start}
+@media (max-width:900px){ .solve{grid-template-columns:1fr} }
+.boardbox{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+          padding:12px; box-shadow:var(--shadow)}
+.boardtools{display:flex; gap:7px; margin-bottom:10px; align-items:center; flex-wrap:wrap}
+.boardtools .sp{flex:1}
+.boardtools .fenlab{font:400 11px/1 "JetBrains Mono",monospace; color:var(--ink-3)}
+.boardarea{min-width:0}
+.boardgrid{display:grid; grid-template-columns:repeat(8,1fr); aspect-ratio:1;
+           border-radius:6px; overflow:hidden; touch-action:none; user-select:none;
+           max-width:min(100%, 78vh); margin:0 auto}
+.sq{position:relative; background:var(--sq-l)}
+.sq.dk{background:var(--sq-d)}
+.sq .mark{position:absolute; inset:0; z-index:1}
+.sq.last .mark{background:var(--hl-last)}
+.sq.sel  .mark{background:var(--hl-sel)}
+.sq.err  .mark{background:var(--hl-bad)}
+.sq.hint .mark{background:none; border:3px solid var(--hl-hint); border-radius:50%;
+               inset:9%; box-sizing:border-box}
+.sq.over::after{content:""; position:absolute; inset:4%; border:3px solid rgba(255,255,255,.75);
+                border-radius:50%; z-index:3; pointer-events:none}
+.pc{position:absolute; inset:6%; z-index:2; cursor:grab; filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
+.pc.dragging{opacity:.28}
+.coord{position:absolute; font:700 min(1.6vw,10px)/1 "JetBrains Mono",monospace;
+       z-index:4; color:rgba(60,40,20,.55); pointer-events:none}
+.sq.dk .coord{color:rgba(255,246,232,.7)}
+.coord.f{right:3px; bottom:2px}
+.coord.r{left:3px; top:2px}
+#ghost{position:fixed; z-index:200; pointer-events:none; filter:drop-shadow(0 5px 10px rgba(0,0,0,.45))}
+.boardgrid.shake{animation:shk .3s}
+@keyframes shk{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}60%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){.boardgrid.shake{animation:none}}
+
+.panel{display:flex; flex-direction:column; gap:12px}
+.pcard{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+       padding:15px 16px; box-shadow:var(--shadow)}
+.pcard h3{font-family:"Literata",serif; font-size:21px; margin:0 0 3px; font-weight:700}
+.pcard .meta{font-size:12.5px; color:var(--ink-3); margin:0}
+.turnrow{display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap}
+.turnrow .chip{display:flex; align-items:center; gap:8px; padding:5px 12px 5px 8px;
+               border:1px solid var(--line); border-radius:99px; font-size:13px; font-weight:600}
+.turnrow .chip .dot{width:13px; height:13px; border-radius:50%; border:1px solid var(--ink-3)}
+.turnrow .chip .dot.w{background:#fff} .turnrow .chip .dot.b{background:#151210}
+
+.state{display:flex; gap:11px; align-items:flex-start; padding:12px 13px; border-radius:11px;
+       border:1px solid var(--line); background:var(--surface-2); font-size:14px; color:var(--ink-2)}
+.state .ic{width:26px; height:26px; border-radius:50%; flex:none; display:grid; place-items:center;
+           background:var(--ink-3); color:var(--bg); font-weight:700; font-size:14px}
+.state .ic svg{width:14px; height:14px; stroke:currentColor; stroke-width:3; fill:none}
+.state b{display:block; color:var(--ink); font-size:14.5px}
+.state.good{background:var(--good-bg); border-color:var(--good-line)}
+.state.good .ic{background:var(--good); color:#fff}
+.state.good b{color:var(--good)}
+.state.bad{background:var(--bad-bg); border-color:var(--bad-line)}
+.state.bad .ic{background:var(--bad); color:#fff}
+.state.bad b{color:var(--bad)}
+.state.hint{background:var(--accent-soft); border-color:var(--accent)}
+.state.hint .ic{background:var(--accent); color:var(--accent-ink)}
+.state.hint b{color:var(--accent)}
+
+.moves{font-family:"JetBrains Mono",monospace; font-size:13px; line-height:1.9;
+       display:flex; flex-wrap:wrap; gap:3px 7px; margin-top:13px}
+.mv{padding:1px 6px; border-radius:5px; background:var(--surface-2)}
+.mv.num{background:none; color:var(--ink-3); padding-left:0}
+.mv.blank{background:none; border:1px dashed var(--line); color:var(--ink-3)}
+.mv.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+
+.acts{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+/* --- Позиционная игра --- */
+#board{position:relative}
+#arrow{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:3}
+.turnbig{display:flex; flex-direction:column; align-items:center; gap:9px; padding:14px 0 10px}
+.turnbig .fig{width:66px; height:66px; border-radius:50%; background:var(--surface-2);
+              border:1px solid var(--line); display:grid; place-items:center}
+.turnbig .fig svg{width:42px; height:42px}
+.turnbig .lab{font-size:14.5px; font-weight:600}
+.notelab{font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--accent);
+         font-weight:700; margin-bottom:9px}
+.note{background:var(--surface-2); border:1px solid var(--line); border-radius:11px;
+      padding:11px 13px; font-size:14.5px; line-height:1.62; color:var(--ink)}
+.note:empty{display:none}
+.notes{max-height:44vh; overflow:auto; scrollbar-width:thin}
+.notes .note + .note{margin-top:8px}
+.notes .note{opacity:.72}
+.notes .note.cur{opacity:1; border-color:var(--accent); background:var(--accent-soft)}
+.note .ev{font-family:"JetBrains Mono",monospace}
+code.san{font-family:"JetBrains Mono",monospace; font-size:12.5px; background:var(--accent-soft);
+         color:var(--ink); border-radius:4px; padding:1px 4px}
+details.pcard{padding:13px 16px}
+details.pcard summary{cursor:pointer; font-size:13.5px; font-weight:700; color:var(--ink-2);
+                      list-style:none; display:flex; align-items:center; gap:7px}
+details.pcard summary::-webkit-details-marker{display:none}
+details.pcard summary:before{content:"▸"; color:var(--accent)}
+details.pcard[open] summary:before{content:"▾"}
+.full{margin-top:11px; font-size:14px; line-height:1.68; color:var(--ink-2)}
+.full .key{color:var(--ink); font-weight:700}
+.row .game{font-size:12.5px; color:var(--ink-2); font-weight:600}
+.pill.pass{background:var(--good-bg); border-color:var(--good-line); color:var(--good)}
+
+.anhead{display:flex; align-items:center; gap:11px; margin-bottom:10px; flex-wrap:wrap}
+.evalwrap{order:3; flex:1 0 100%; margin-top:2px}
+.evalbar{height:13px; border-radius:99px; overflow:hidden; background:#17130f;
+         border:1px solid var(--line); box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.evalbar i{display:block; height:100%; width:50%; background:#F4F0E6; transition:width .25s}
+.anmeta{flex:1; align-items:flex-start!important}
+.anmeta{display:flex; flex-direction:column; align-items:flex-end; line-height:1.25}
+.anmeta b{font-family:"JetBrains Mono",monospace; font-size:16px; font-variant-numeric:tabular-nums}
+.anmeta span{font-size:11px; color:var(--ink-3); white-space:nowrap}
+.anlines{display:flex; flex-direction:column; gap:5px; margin-bottom:11px}
+.anline{display:flex; gap:9px; align-items:baseline; text-align:left; width:100%;
+        padding:6px 9px; border-radius:8px; border:1px solid var(--line); background:var(--surface-2);
+        font-family:"JetBrains Mono",monospace; font-size:12px; line-height:1.5}
+.anline:hover{border-color:var(--accent)}
+.anline b{flex:none; min-width:46px; color:var(--ink)}
+.anline span{color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.anmoves{font-family:"JetBrains Mono",monospace; font-size:13px; line-height:1.9;
+         display:flex; flex-wrap:wrap; gap:3px 7px; max-height:26vh; overflow:auto;
+         border-top:1px solid var(--line-2); padding-top:10px}
+.anmoves .mv{cursor:pointer}
+.anmoves .mv.own{background:var(--accent-soft); color:var(--ink)}
+.anmoves .mv.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+.annav{display:flex; gap:6px; margin-top:12px}
+.annav button{flex:1; padding:9px 0; border:1px solid var(--line); border-radius:9px;
+              background:var(--surface-2); font-size:14px; font-weight:600}
+.annav button:hover{border-color:var(--accent)}
+.annav button.go{flex:2.2; background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.anhint{font-size:11.5px; color:var(--ink-3); margin:10px 0 0}
+.anauto{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:9px;
+        font-size:12.5px; color:var(--ink-3); cursor:pointer}
+.anauto input{accent-color:var(--accent); width:15px; height:15px}
+.anbig{margin-top:12px; width:100%; padding:11px 0; border-radius:10px; font-weight:700; font-size:14px;
+       background:var(--accent); color:var(--accent-ink)}
+.anbig:hover{filter:brightness(1.06)}
+
+.stars{display:inline-flex; align-items:center; gap:3px; vertical-align:middle}
+.stars i{display:block; line-height:0}
+.stars svg{width:15px; height:15px; display:block; fill:var(--line)}
+.stars i.on svg{fill:#E9A93B}
+.stars.big svg{width:40px; height:40px}
+.starbig{display:flex; flex-direction:column; align-items:center; gap:9px; padding:14px 0 8px}
+.starbig .lab{font-size:14.5px; font-weight:700}
+.starbig .sub{font-size:12.5px; color:var(--ink-3); margin-top:-4px}
+.pill .stars svg{width:13px; height:13px; stroke:none}
+.row .rb .stars{margin-bottom:1px}
+
+.sq.dest .mark:after{content:""; position:absolute; left:50%; top:50%; width:30%; height:30%;
+  transform:translate(-50%,-50%); border-radius:50%; background:rgba(30,60,20,.28)}
+.sq.dest.cap .mark{background:none; border-radius:50%;
+  box-shadow:inset 0 0 0 7px rgba(30,60,20,.26)}
+.sq.dest.cap .mark:after{display:none}
+.boardgrid{touch-action:none}
+
+.acts button{padding:11px 10px; border:1px solid var(--line); border-radius:9px;
+             font-weight:700; font-size:14px; background:var(--surface)}
+.acts button:hover{border-color:var(--ink-3)}
+.acts .go{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); grid-column:1/-1}
+.acts button:disabled{opacity:.4; cursor:default}
+
+body.zen .top, body.zen .panel > .pcard:not(.zenkeep), body.zen .crumb{display:none}
+body.zen .wrap{max-width:none; padding:0}
+body.zen .solve{grid-template-columns:1fr; gap:8px; height:100dvh;
+                grid-template-rows:minmax(0,1fr) auto; padding:10px; align-items:stretch}
+body.zen .boardbox{border:0; box-shadow:none; background:none; padding:0;
+                   display:flex; flex-direction:column; min-height:0}
+body.zen .boardarea{flex:1; min-height:0; display:grid; place-items:center}
+body.zen .boardgrid{max-width:none; max-height:none; margin:auto}
+body.zen .panel{flex-direction:row; gap:10px; align-items:stretch}
+body.zen .panel .pcard{flex:1; padding:10px 12px}
+body.zen .acts{grid-template-columns:repeat(4,1fr)}
+body.zen .acts .go{grid-column:auto}
+body.zen .moves{display:none}
+
+footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--line);
+       font-size:12.5px; color:var(--ink-3)}
+
+/* ===== РАЗБОР ПАРТИИ ===== */
+.navbtn{padding:7px 13px; border:1px solid var(--line); border-radius:8px; font-size:13.5px;
+        font-weight:600; color:var(--ink-2); background:var(--surface); white-space:nowrap}
+.navbtn:hover{border-color:var(--accent); color:var(--ink)}
+.navbtn.on{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+@media (max-width:620px){ .gauge{display:none} }
+
+.promo{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:0 0 24px;
+       background:var(--surface); border:1px solid var(--line); border-radius:14px;
+       padding:16px 18px; box-shadow:var(--shadow)}
+.promo .pi{width:42px; height:42px; border-radius:11px; background:var(--accent-soft);
+           color:var(--accent); display:grid; place-items:center; font-size:20px; flex:none}
+.promo .pb{flex:1; min-width:220px}
+.promo h3{margin:0; font-family:"Literata",serif; font-size:17px; font-weight:700}
+.promo p{margin:3px 0 0; font-size:13.5px; color:var(--ink-2)}
+.promo .go{padding:10px 16px; border-radius:9px; background:var(--accent); color:var(--accent-ink);
+           font-weight:700; font-size:14px}
+.promo .go:hover{filter:brightness(1.06)}
+
+.rvform{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+        padding:16px; box-shadow:var(--shadow); max-width:760px}
+.rvform textarea{width:100%; min-height:96px; resize:vertical; padding:11px 12px; border-radius:10px;
+        border:1px solid var(--line); background:var(--bg); color:var(--ink);
+        font:400 13px/1.5 "JetBrains Mono",monospace}
+.rvform textarea:focus{outline:none; border-color:var(--accent)}
+.rvrow{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px}
+.rvrow .sp{flex:1}
+.rvseg{display:flex; gap:5px}
+.rvseg button{padding:6px 12px; border-radius:99px; border:1px solid var(--line);
+              font-size:12.5px; color:var(--ink-2); background:var(--surface)}
+.rvseg button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+.rvgo{padding:11px 20px; border-radius:10px; background:var(--accent); color:var(--accent-ink);
+      font-weight:700; font-size:14.5px}
+.rvgo:hover{filter:brightness(1.06)}
+.rvgo:disabled{opacity:.5; cursor:default}
+.rvhint{font-size:12px; color:var(--ink-3); margin:10px 0 0}
+.rverr{margin-top:12px; padding:10px 12px; border-radius:10px; font-size:13.5px;
+       background:var(--bad-bg); border:1px solid var(--bad-line); color:var(--bad)}
+.rvex{display:flex; gap:7px; flex-wrap:wrap; margin-top:10px}
+.rvex button{font-size:12px; padding:5px 10px; border-radius:99px; border:1px dashed var(--line);
+             color:var(--ink-3)}
+.rvex button:hover{border-color:var(--accent); color:var(--accent)}
+
+.rvmy{margin-top:22px; max-width:760px}
+.rvmy h3{font-family:"Literata",serif; font-size:17px; margin:0 0 12px}
+.rvmyrow{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.rvmy input{padding:9px 12px; border-radius:9px; border:1px solid var(--line);
+            background:var(--surface); color:var(--ink); font:inherit; font-size:14px; min-width:170px}
+.rvmy input:focus{outline:none; border-color:var(--accent)}
+.rvgames{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:9px; margin-top:13px}
+.rvgame{display:flex; gap:11px; align-items:center; text-align:left; background:var(--surface);
+        border:1px solid var(--line); border-radius:11px; padding:10px 12px}
+.rvgame:hover{border-color:var(--accent)}
+.rvgame .res{width:26px; height:26px; border-radius:7px; flex:none; display:grid; place-items:center;
+             font-size:12px; font-weight:700; background:var(--surface-2); color:var(--ink-2)}
+.rvgame .res.win{background:var(--good-bg); color:var(--good)}
+.rvgame .res.lose{background:var(--bad-bg); color:var(--bad)}
+.rvgame .gb{min-width:0; flex:1}
+.rvgame .gt{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rvgame .gs{font-size:11.5px; color:var(--ink-3)}
+
+.rvprog{max-width:560px; margin:40px auto; text-align:center}
+.rvprog h2{font-family:"Literata",serif; font-size:22px; margin:0 0 6px}
+.rvprog p{color:var(--ink-2); font-size:14px; margin:0 0 18px}
+.rvbar{height:10px; border-radius:99px; background:var(--surface-2); overflow:hidden}
+.rvbar i{display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .2s}
+.rvpct{margin-top:10px; font:700 13px/1 "JetBrains Mono",monospace; color:var(--ink-2)}
+.rvprog .mini{width:180px; margin:20px auto 0; border-radius:8px; overflow:hidden;
+              border:1px solid var(--line-2); line-height:0}
+
+/* --- отчёт --- */
+.rvgrid{display:grid; grid-template-columns:minmax(0,1fr) 392px; gap:22px; align-items:start}
+@media (max-width:980px){ .rvgrid{grid-template-columns:1fr} }
+.rvboardbox{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+            padding:12px; box-shadow:var(--shadow)}
+.rvbwrap{display:flex; gap:10px; align-items:stretch}
+.rvebar{width:16px; flex:none; border-radius:99px; overflow:hidden; background:#1b1714;
+        position:relative; border:1px solid var(--line)}
+.rvebar i{position:absolute; left:0; right:0; bottom:0; height:50%; background:#F2EEE4; transition:height .25s}
+.rvebar b{position:absolute; left:0; right:0; text-align:center; font:700 8px/1 "JetBrains Mono",monospace;
+          z-index:2; letter-spacing:-.03em}
+.rvebar b.t{top:3px; color:#F2EEE4} .rvebar b.b{bottom:3px; color:#1b1714}
+#rvBoard{position:relative; flex:1; min-width:0}
+#rvArrow{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5}
+.rvbadge{position:absolute; top:-7%; right:-7%; width:36%; height:36%; z-index:6; pointer-events:none;
+         border-radius:50%; display:grid; place-items:center; color:#fff; box-shadow:0 1px 3px rgba(0,0,0,.4);
+         font:800 clamp(8px,1.5vw,13px)/1 "Manrope",sans-serif; letter-spacing:-.04em}
+.rvtools{display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:10px}
+.rvtools .sp{flex:1}
+.rvtools .who{font-size:12.5px; color:var(--ink-3)}
+.rvnav{display:flex; gap:6px; margin-top:11px}
+.rvnav button{flex:1; padding:9px 0; border:1px solid var(--line); border-radius:9px;
+              font-size:15px; background:var(--surface)}
+.rvnav button:hover{border-color:var(--accent)}
+.rvnav button:disabled{opacity:.35; cursor:default}
+
+.rvcard{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+        padding:15px 16px; box-shadow:var(--shadow)}
+.rvpanel{display:flex; flex-direction:column; gap:12px}
+.rvpanel h4{margin:0 0 11px; font:700 11px/1 "Manrope",sans-serif; letter-spacing:.09em;
+            text-transform:uppercase; color:var(--accent)}
+
+.rvsum{display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center}
+.rvsum .pl{min-width:0; text-align:center}
+.rvsum .pl .nm{font-size:13.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rvsum .pl .el{font-size:11.5px; color:var(--ink-3)}
+.rvsum .acc{font-family:"Literata",serif; font-size:27px; font-weight:700; line-height:1.15; margin-top:4px}
+.rvsum .accl{font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3)}
+.rvsum .vs{font-size:12px; color:var(--ink-3); padding:0 4px}
+.rvsum .lvl{font-size:11.5px; color:var(--ink-2); margin-top:5px}
+.rvres{text-align:center; font-size:13px; color:var(--ink-2); margin:12px 0 0; padding-top:11px;
+       border-top:1px solid var(--line-2)}
+.rvres b{color:var(--ink)}
+
+.rvtab{width:100%; border-collapse:collapse; font-size:13px}
+.rvtab td{padding:4px 6px; border-bottom:1px solid var(--line-2)}
+.rvtab tr:last-child td{border-bottom:0}
+.rvtab td.n{text-align:center; width:40px; font-variant-numeric:tabular-nums; font-weight:700}
+.rvtab td .c{display:flex; align-items:center; gap:8px}
+.rvtab tr.zero{opacity:.38}
+.ico{width:19px; height:19px; border-radius:50%; flex:none; display:grid; place-items:center;
+     color:#fff; font:800 10px/1 "Manrope",sans-serif; letter-spacing:-.04em}
+.ico.sm{width:16px; height:16px; font-size:8.5px}
+
+.rvgraph{position:relative}
+.rvgraph svg{display:block; width:100%; height:104px; border-radius:9px; overflow:hidden;
+             background:var(--surface-2); cursor:crosshair}
+.rvgraph .cur{position:absolute; top:0; bottom:0; width:1.5px; background:var(--accent); pointer-events:none}
+
+.rvmoves{font-family:"JetBrains Mono",monospace; font-size:12.5px; max-height:270px; overflow:auto;
+         scrollbar-width:thin; margin:-4px -4px -4px 0}
+.rvmline{display:grid; grid-template-columns:34px 1fr 1fr; align-items:center; gap:2px}
+.rvmline .no{color:var(--ink-3); font-size:11.5px; text-align:right; padding-right:7px}
+.rvm{display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:6px; text-align:left;
+     width:100%; min-width:0}
+.rvm:hover{background:var(--surface-2)}
+.rvm.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+.rvm .sn{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.rvm .cl{margin-left:auto; font-size:10px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.rvm.cur .cl{color:var(--accent-ink); opacity:.75}
+
+.rvverd{display:flex; gap:11px; align-items:flex-start}
+.rvverd .big{width:30px; height:30px; font-size:14px; border-radius:50%; flex:none; display:grid;
+             place-items:center; color:#fff; font-weight:800; letter-spacing:-.04em}
+.rvverd .tx{min-width:0}
+.rvverd .tt{font-size:15.5px; font-weight:700; line-height:1.25}
+.rvverd .ds{font-size:13.5px; color:var(--ink-2); margin-top:4px}
+.rvverd .ds b{color:var(--ink)}
+.rvline{margin-top:11px; padding:9px 11px; border-radius:10px; background:var(--surface-2);
+        border:1px solid var(--line-2); font-family:"JetBrains Mono",monospace; font-size:12.5px;
+        line-height:1.65; color:var(--ink-2)}
+.rvline .lb{font-family:"Manrope",sans-serif; font-size:10.5px; letter-spacing:.07em;
+            text-transform:uppercase; color:var(--ink-3); display:block; margin-bottom:2px}
+.rvline .ev{color:var(--ink); font-weight:700}
+.rvacts{display:flex; gap:7px; margin-top:12px; flex-wrap:wrap}
+.rvacts button{flex:1; min-width:120px; padding:9px 12px; border:1px solid var(--line);
+               border-radius:9px; font-size:13px; font-weight:600; background:var(--surface)}
+.rvacts button:hover{border-color:var(--accent)}
+.rvacts button.go{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+
+.rvkey{display:flex; flex-direction:column; gap:7px}
+.rvkeyb{display:flex; gap:9px; align-items:center; text-align:left; padding:7px 9px; border-radius:9px;
+        border:1px solid var(--line-2); background:var(--surface-2); font-size:12.5px; width:100%}
+.rvkeyb:hover{border-color:var(--accent)}
+.rvkeyb .mv{font-family:"JetBrains Mono",monospace; font-weight:700; background:none; padding:0}
+.rvkeyb .tx{color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.rvexp{margin-top:10px; padding:9px 11px; border-radius:10px; border:1px dashed var(--accent);
+       background:var(--accent-soft); font-size:12.5px}
+.rvexp b{display:block; font-size:13px}
+.rvspin{display:inline-block; width:11px; height:11px; border:2px solid var(--line);
+        border-top-color:var(--accent); border-radius:50%; animation:rvsp .8s linear infinite;
+        vertical-align:-1px}
+@keyframes rvsp{to{transform:rotate(360deg)}}
+
+.rvtools .who .ev{font-family:"JetBrains Mono",monospace; color:var(--ink); font-size:13px}
+.rvpl{display:flex; align-items:center; gap:7px; font-size:13.5px; font-weight:600; padding:3px 2px}
+.rvpl .dot{width:11px; height:11px; border-radius:50%; border:1px solid var(--ink-3); flex:none}
+.rvpl .dot.w{background:#fff} .rvpl .dot.b{background:#151210}
+.rvpl i{font-style:normal; font-weight:400; color:var(--ink-3); font-size:12px}
+.rvpl .adv{color:var(--good); font-family:"JetBrains Mono",monospace; font-size:12px}
+
+.pvm{font-family:"JetBrains Mono",monospace; font-size:12.5px; color:var(--ink-2);
+     padding:1px 4px; border-radius:5px; line-height:1.5}
+.pvm:hover{background:var(--accent); color:var(--accent-ink)}
+.rvline .rvhint{margin:0}
+
+/* ===== ДЕБЮТЫ ===== */
+.opgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px}
+.opcard{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:15px 16px;
+        box-shadow:var(--shadow); display:flex; flex-direction:column; gap:9px; text-align:left; width:100%}
+.opcard:hover{border-color:var(--accent)}
+.opcard .top{display:flex; align-items:center; gap:9px}
+.opcard h3{font-family:"Literata",serif; font-size:18px; margin:0; font-weight:700; flex:1; min-width:0;
+           overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.opside{width:20px; height:20px; border-radius:50%; border:1px solid var(--ink-3); flex:none}
+.opside.w{background:#fff} .opside.b{background:#151210}
+.opcard .meta{font-size:12.5px; color:var(--ink-3)}
+.opcard .bar{height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden}
+.opcard .bar i{display:block; height:100%; background:var(--good); border-radius:99px}
+.opcard .due{font-size:12.5px; color:var(--accent); font-weight:600}
+.opcard.add{align-items:center; justify-content:center; border-style:dashed; color:var(--ink-3);
+            font-weight:700; min-height:118px}
+.opcard.add:hover{color:var(--accent)}
+
+.oprow{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin:14px 0}
+.oprow .sp{flex:1}
+.optarget{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-3)}
+.optarget select{padding:6px 9px; border-radius:8px; border:1px solid var(--line);
+                 background:var(--surface); color:var(--ink); font:inherit; font-size:13px}
+.opinput{width:100%; padding:9px 12px; border-radius:9px; border:1px solid var(--line);
+         background:var(--bg); color:var(--ink); font:inherit; font-size:14px; margin-bottom:11px}
+.opinput:focus{outline:none; border-color:var(--accent)}
+
+.opio, .opio2{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px;
+              margin-top:14px; box-shadow:var(--shadow)}
+.opio textarea, .opio2 textarea{width:100%; min-height:130px; resize:vertical; padding:10px 12px;
+  border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink);
+  font:400 12.5px/1.5 "JetBrains Mono",monospace}
+.opio textarea:focus, .opio2 textarea:focus{outline:none; border-color:var(--accent)}
+.opiolab{font-size:12.5px; color:var(--ink-2); margin-bottom:9px}
+
+.opstats{display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:4px}
+.opstat{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 13px}
+.opstat b{display:block; font-family:"Literata",serif; font-size:22px; line-height:1.2}
+.opstat span{font-size:11.5px; color:var(--ink-3)}
+
+.oplines{display:flex; flex-direction:column; gap:8px}
+.opline{display:flex; gap:12px; align-items:center; background:var(--surface); border:1px solid var(--line);
+        border-radius:12px; padding:11px 13px; flex-wrap:wrap}
+.opline.due{border-color:var(--accent)}
+.opline.ok{border-color:var(--good-line)}
+.opline .lb{flex:1; min-width:190px}
+.opline .nm{font-size:14.5px; font-weight:700}
+.opline .mv{font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--ink-3);
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; max-width:100%}
+.opdots{display:flex; gap:3px; align-items:center}
+.opdots i{width:9px; height:9px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line)}
+.opdots i.on{background:var(--good); border-color:var(--good)}
+.opstate{font-size:11.5px; color:var(--ink-3); min-width:104px; text-align:right}
+.opstate.due{color:var(--accent); font-weight:600}
+.opstate.ok{color:var(--good)}
+.opline .acts{display:flex; gap:6px}
+.opline .acts button{padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px}
+.opline .acts button:hover{border-color:var(--accent)}
+.opline .acts button.go{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+
+.opmoves{font-family:"JetBrains Mono",monospace; font-size:13px; line-height:1.95; max-height:210px;
+         overflow:auto; scrollbar-width:thin; display:flex; flex-wrap:wrap; gap:4px; align-items:baseline}
+.opmoves .num{color:var(--ink-3); font-size:12px}
+.opmoves button{padding:1px 6px; border-radius:5px; background:var(--surface-2)}
+.opmoves button:hover{background:var(--accent); color:var(--accent-ink)}
+.opmoves button.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+.opmoves button.bad{background:var(--bad-bg); color:var(--bad)}
+.opmoves button.mine{outline:1px solid var(--line)}
+.opmoves .empty{color:var(--ink-3); font-size:12.5px; font-family:"Manrope",sans-serif}
+
+.optbar{height:7px; border-radius:99px; background:var(--surface-2); overflow:hidden; margin-top:11px}
+.optbar i{display:block; height:100%; width:0; background:var(--accent); border-radius:99px; transition:width .25s}
+.opsess{display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; text-align:center}
+.opsess div b{display:block; font-family:"Literata",serif; font-size:21px}
+.opsess div span{font-size:11px; color:var(--ink-3)}
+.opq{margin-top:11px; font-size:12.5px; color:var(--ink-3)}
+.opq b{color:var(--ink)}
+.sq.good .mark{background:rgba(70,150,60,.55)}
+.sq.wrong .mark{background:rgba(200,60,40,.55)}
+
+.optoast{position:fixed; left:50%; bottom:26px; transform:translate(-50%,20px); z-index:200;
+         background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:11px;
+         font-size:13.5px; font-weight:600; box-shadow:0 10px 30px -12px rgba(0,0,0,.6);
+         opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; max-width:88vw; text-align:center}
+.optoast.on{opacity:1; transform:translate(-50%,0)}
+.optoast.bad{background:var(--bad); color:#fff}
+
+.optree{display:flex; flex-direction:column; gap:12px}
+.optreebox{background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:12px 14px}
+.optrhead{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:9px;
+          padding-bottom:9px; border-bottom:1px solid var(--line-2)}
+.optrhead b{font-size:14.5px}
+.optrhead span{font-size:12px; color:var(--ink-3)}
+.optrhead .sp{flex:1}
+.optrhead button{padding:5px 10px; border:1px solid var(--line); border-radius:8px; font-size:12px}
+.optrhead button:hover{border-color:var(--accent)}
+.optr{display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:2px 0;
+      font-family:"JetBrains Mono",monospace; font-size:12.5px; position:relative}
+.optr.sub{border-left:1px solid var(--line); margin-left:5px}
+.optr .tmv{padding:1px 6px; border-radius:5px; background:var(--surface-2); color:var(--ink-2)}
+.optr .tmv:hover{background:var(--accent); color:var(--accent-ink)}
+.optr .tmv.mine{color:var(--ink); font-weight:700}
+.optr .leaf{display:inline-flex; align-items:center; gap:7px; margin-left:6px;
+            font-family:"Manrope",sans-serif; font-size:11.5px; color:var(--ink-3)}
+.optr .leaf b{font-weight:600; color:var(--ink-2); max-width:190px; overflow:hidden;
+              text-overflow:ellipsis; white-space:nowrap}
+.optr .leaf .go{padding:3px 9px; border:1px solid var(--line); border-radius:7px; font-size:11.5px}
+.optr .leaf .go:hover{border-color:var(--accent); color:var(--accent)}
+.optr .add{padding:2px 7px; border:1px dashed var(--line); border-radius:6px; font-size:11px; color:var(--ink-3)}
+.optr .add:hover{border-color:var(--accent); color:var(--accent)}
+.opfork{margin:9px 0 0; font-size:12px; color:var(--accent); background:var(--accent-soft);
+        border:1px solid var(--accent); border-radius:9px; padding:7px 10px}
+
+#opECont .pvm.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+
+.optoast.act{pointer-events:auto}
+.optoast .tundo{margin-left:11px; padding:3px 10px; border-radius:7px; border:1px solid rgba(255,255,255,.35);
+                color:inherit; font-weight:700; font-size:12.5px}
+.optoast .tundo:hover{background:rgba(255,255,255,.15)}
+.optr .leaf .del{padding:2px 7px; border-radius:6px; color:var(--ink-3); font-size:12px}
+.optr .leaf .del:hover{background:var(--bad-bg); color:var(--bad)}
+
+.rvbwrap .boardgrid{flex:1; min-width:0}
+.rvebar{transition:opacity .2s}
+
+.rvtools .ghost.on, .rvacts button.on{border-color:var(--accent); color:var(--accent)}
+.boardarea .bwrap{display:flex; gap:10px; align-items:stretch; max-width:min(100%,78vh); margin:0 auto}
+.boardarea .bwrap .boardgrid{flex:1; min-width:0; max-width:none; margin:0}
+body.zen .boardarea .bwrap{max-width:none; height:100%}
+
+/* горизонтальная шкала в карточке анализа больше не нужна — слева вертикальная */
+.anhead .evalwrap{display:none}
+
+.opcheck{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-2); cursor:pointer}
+.opcheck input{accent-color:var(--accent); width:15px; height:15px}
+.opsel{padding:6px 9px; border-radius:8px; border:1px solid var(--line);
+       background:var(--surface); color:var(--ink); font:inherit; font-size:12.5px}
+.opev{font-family:"JetBrains Mono",monospace; font-size:11.5px; padding:1px 6px; border-radius:6px;
+      background:var(--surface-2); color:var(--ink-2); border:1px solid var(--line-2)}
+.opev.bad{background:var(--bad-bg); color:var(--bad); border-color:var(--bad-line)}
+.opev.ok{background:var(--good-bg); color:var(--good); border-color:var(--good-line)}
+.opskip{background:var(--surface); border:1px solid var(--accent); border-radius:13px;
+        padding:13px 15px; margin-bottom:12px}
+.opskip h4{margin:0 0 4px; font:700 11px/1 "Manrope",sans-serif; letter-spacing:.09em;
+           text-transform:uppercase; color:var(--accent)}
+.opskip p{margin:0 0 10px; font-size:13px; color:var(--ink-2)}
+.opskip .row{display:flex; align-items:center; gap:9px; font-size:12.5px; padding:4px 0;
+             border-top:1px solid var(--line-2)}
+.opskip .row b{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0}
+.opskip .row .mv{font-family:"JetBrains Mono",monospace; color:var(--ink-3); font-size:11.5px;
+                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%}
+.opchkpanel{position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:150;
+            background:var(--surface); border:1px solid var(--line); border-radius:13px;
+            padding:13px 16px; box-shadow:0 14px 34px -16px rgba(0,0,0,.7); min-width:320px; max-width:90vw}
+.opchkpanel .t{font-size:13px; margin-bottom:8px; display:flex; align-items:center; gap:8px}
+.opchkpanel .t .sp{flex:1}
+.opchkpanel .t button{font-size:12px; color:var(--ink-3)}
+.opchkpanel .t button:hover{color:var(--bad)}
+
+/* --- карточка тренировки --- */
+.optcard{padding:14px 16px}
+.optop{display:flex; align-items:center; gap:9px; margin-bottom:12px; min-width:0}
+.opmode{flex:none; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+        padding:4px 9px; border-radius:99px; background:var(--accent-soft); color:var(--accent);
+        border:1px solid var(--accent)}
+.opmode.learn{background:rgba(91,140,179,.16); color:#6f9cc4; border-color:rgba(111,156,196,.5)}
+.opmode.ok{background:var(--good-bg); color:var(--good); border-color:var(--good-line)}
+.opmode.bad{background:var(--bad-bg); color:var(--bad); border-color:var(--bad-line)}
+.opname{font-size:13px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.opask{font-size:15px; line-height:1.45; color:var(--ink)}
+.opask b{font-weight:700}
+.opask .sub{display:block; margin-top:4px; font-size:13px; color:var(--ink-2)}
+.opask .sub b{color:var(--ink)}
+.optcard .opmoves{margin:12px 0 0; padding-top:11px; border-top:1px solid var(--line-2); max-height:150px}
+.optcard .rvacts{margin-top:12px}
+.opsess{padding:2px 0}
+
+#opTBoard, #opEBoard{position:relative}
+.opar{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5}
+</style>
+<link rel="stylesheet" href="auth.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="pc-B" viewBox="0 0 100 100"><path d="M19.98,80.04 C27.56,77.87 42.44,80.97 50.02,75.56 C57.53,80.97 72.47,77.87 79.98,80.04 C79.98,80.04 83.66,81.19 86.70,84.44 C85.18,86.61 83.01,86.68 79.98,85.59 C72.47,83.43 57.53,86.61 50.02,83.36 C42.44,86.61 27.56,83.43 19.98,85.59 C17.02,86.68 14.86,86.61 13.34,84.44 C16.37,80.11 19.98,80.04 19.98,80.04 M33.34,71.08 C38.90,76.64 61.14,76.64 66.70,71.08 C67.78,67.76 66.70,66.68 66.70,66.68 C66.70,61.12 61.14,57.80 61.14,57.80 C73.34,54.48 74.42,32.24 50.02,23.36 C25.54,32.24 26.70,54.48 38.90,57.80 C38.90,57.80 33.34,61.12 33.34,66.68 C33.34,66.68 32.26,67.76 33.34,71.08 M55.58,17.80 C55.58,20.83 53.05,23.36 50.02,23.36 C46.91,23.36 44.46,20.83 44.46,17.80 C44.46,14.69 46.91,12.24 50.02,12.24 C53.05,12.24 55.58,14.69 55.58,17.80 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M19.98,80.04 C27.56,77.87 42.44,80.97 50.02,75.56 C57.53,80.97 72.47,77.87 79.98,80.04 C79.98,80.04 83.66,81.19 86.70,84.44 C85.18,86.61 83.01,86.68 79.98,85.59 C72.47,83.43 57.53,86.61 50.02,83.36 C42.44,86.61 27.56,83.43 19.98,85.59 C17.02,86.68 14.86,86.61 13.34,84.44 C16.37,80.11 19.98,80.04 19.98,80.04 M33.34,71.08 C38.90,76.64 61.14,76.64 66.70,71.08 C67.78,67.76 66.70,66.68 66.70,66.68 C66.70,61.12 61.14,57.80 61.14,57.80 C73.34,54.48 74.42,32.24 50.02,23.36 C25.54,32.24 26.70,54.48 38.90,57.80 C38.90,57.80 33.34,61.12 33.34,66.68 C33.34,66.68 32.26,67.76 33.34,71.08 M55.58,17.80 C55.58,20.83 53.05,23.36 50.02,23.36 C46.91,23.36 44.46,20.83 44.46,17.80 C44.46,14.69 46.91,12.24 50.02,12.24 C53.05,12.24 55.58,14.69 55.58,17.80" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M38.90,57.80 L61.14,57.80 M33.34,66.68 L66.70,66.68 M50.02,34.48 L50.02,45.60 M44.46,40.04 L55.58,40.04" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-K" viewBox="0 0 100 100"><path d="M50.02,25.82 L50.02,13.33 M44.46,17.81 L55.58,17.81" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M50.02,55.57 C50.02,55.57 59.98,38.89 56.66,32.25 C56.66,32.25 54.42,26.69 50.02,26.69 C45.54,26.69 43.31,32.25 43.31,32.25 C39.98,38.89 50.02,55.57 50.02,55.57 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M50.02,55.57 C50.02,55.57 59.98,38.89 56.66,32.25 C56.66,32.25 54.42,26.69 50.02,26.69 C45.54,26.69 43.31,32.25 43.31,32.25 C39.98,38.89 50.02,55.57 50.02,55.57" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M25.54,82.21 C37.75,90.01 59.98,90.01 72.19,82.21 L72.19,66.69 C72.19,66.69 92.26,56.65 85.54,43.37 C76.66,28.92 55.58,35.57 50.02,52.25 L50.02,59.97 L50.02,52.25 C42.22,35.57 21.14,28.92 14.43,43.37 C7.78,56.65 25.54,65.53 25.54,65.53 L25.54,82.21 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M25.54,82.21 C37.75,90.01 59.98,90.01 72.26,82.21 L72.26,66.69 C72.26,66.69 92.26,56.65 85.54,43.37 C76.66,28.92 55.58,35.57 50.02,52.25 L50.02,59.97 L50.02,52.25 C42.22,35.57 21.14,28.92 14.43,43.37 C7.78,56.65 25.54,65.53 25.54,65.53 L25.54,82.21" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M25.54,66.69 C37.75,59.97 59.98,59.97 72.26,66.69 M25.54,74.41 C37.75,67.77 59.98,67.77 72.26,74.41 M25.54,82.21 C37.75,75.57 59.98,75.57 72.26,82.21" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-N" viewBox="0 0 100 100"><path d="M48.86,22.21 C72.26,24.44 85.54,39.97 84.46,86.68 L33.34,86.68 C33.34,66.68 55.58,72.24 51.10,39.97 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M48.86,22.21 C72.26,24.44 85.54,39.97 84.46,86.68 L33.34,86.68 C33.34,66.68 55.58,72.24 51.10,39.97" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M53.34,39.97 C54.21,46.47 40.99,56.36 35.58,59.97 C28.86,64.44 29.30,69.64 24.46,68.92 C22.15,66.83 27.56,62.13 24.46,62.21 C22.22,62.21 24.89,64.95 22.22,66.68 C19.98,66.68 13.34,68.92 13.34,57.80 C13.34,53.32 26.70,31.09 26.70,31.09 C26.70,31.09 30.89,26.90 31.10,23.36 C29.51,21.12 30.02,18.89 30.02,16.65 C32.26,14.48 36.66,22.21 36.66,22.21 L41.14,22.21 C41.14,22.21 42.87,17.80 46.70,15.56 C48.86,15.56 48.86,22.21 48.86,22.21 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M53.34,39.97 C54.21,46.47 40.99,56.36 35.58,59.97 C28.86,64.44 29.30,69.64 24.46,68.92 C22.15,66.83 27.56,62.13 24.46,62.21 C22.22,62.21 24.89,64.95 22.22,66.68 C19.98,66.68 13.34,68.92 13.34,57.80 C13.34,53.32 26.70,31.09 26.70,31.09 C26.70,31.09 30.89,26.90 31.10,23.36 C29.51,21.12 30.02,18.89 30.02,16.65 C32.26,14.48 36.66,22.21 36.66,22.21 L41.14,22.21 C41.14,22.21 42.87,17.80 46.70,15.56 C48.86,15.56 48.86,22.21 48.86,22.21" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M21.14,56.65 C21.14,57.30 20.63,57.80 19.98,57.80 C19.41,57.80 18.90,57.30 18.90,56.65 C18.90,56.07 19.41,55.56 19.98,55.56 C20.63,55.56 21.14,56.07 21.14,56.65 Z" fill="#000000" fill-rule="evenodd"/><path d="M21.14,56.65 C21.14,57.30 20.63,57.80 19.98,57.80 C19.41,57.80 18.90,57.30 18.90,56.65 C18.90,56.07 19.41,55.56 19.98,55.56 C20.63,55.56 21.14,56.07 21.14,56.65" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M33.20,34.99 C32.26,36.57 31.10,37.66 30.52,37.37 C30.02,37.01 30.31,35.49 31.25,33.90 C32.18,32.31 33.34,31.23 33.92,31.59 C34.42,31.88 34.13,33.40 33.20,34.99 Z" fill="#000000" fill-rule="evenodd"/><path d="M33.20,34.99 C32.26,36.57 31.10,37.66 30.52,37.37 C30.02,37.01 30.31,35.49 31.25,33.90 C32.18,32.31 33.34,31.23 33.92,31.59 C34.42,31.88 34.13,33.40 33.20,34.99" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-P" viewBox="0 0 100 100"><path d="M50.02,19.97 C45.11,19.97 41.14,24.01 41.14,28.92 C41.14,30.87 41.79,32.68 42.87,34.19 C38.54,36.65 35.58,41.34 35.58,46.68 C35.58,51.16 37.67,55.20 40.92,57.88 C34.28,60.19 24.46,70.15 24.46,87.77 L75.58,87.77 C75.58,70.15 65.76,60.19 59.12,57.88 C62.37,55.20 64.46,51.16 64.46,46.68 C64.46,41.34 61.50,36.65 57.17,34.19 C58.25,32.68 58.90,30.87 58.90,28.92 C58.90,24.01 54.93,19.97 50.02,19.97 Z" fill="#ffffff"/><path d="M50.02,19.97 C45.11,19.97 41.14,24.01 41.14,28.92 C41.14,30.87 41.79,32.68 42.87,34.19 C38.54,36.65 35.58,41.34 35.58,46.68 C35.58,51.16 37.67,55.20 40.92,57.88 C34.28,60.19 24.46,70.15 24.46,87.77 L75.58,87.77 C75.58,70.15 65.76,60.19 59.12,57.88 C62.37,55.20 64.46,51.16 64.46,46.68 C64.46,41.34 61.50,36.65 57.17,34.19 C58.25,32.68 58.90,30.87 58.90,28.92 C58.90,24.01 54.93,19.97 50.02,19.97" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-Q" viewBox="0 0 100 100"><path d="M17.81,26.68 C17.81,29.14 15.79,31.09 13.34,31.09 C10.88,31.09 8.86,29.14 8.86,26.68 C8.86,24.23 10.88,22.21 13.34,22.21 C15.79,22.21 17.81,24.23 17.81,26.68 M54.42,16.65 C54.42,19.10 52.47,21.12 50.01,21.12 C47.56,21.12 45.54,19.10 45.54,16.65 C45.54,14.19 47.56,12.24 50.01,12.24 C52.47,12.24 54.42,14.19 54.42,16.65 M91.10,26.68 C91.10,29.14 89.15,31.09 86.69,31.09 C84.24,31.09 82.22,29.14 82.22,26.68 C82.22,24.23 84.24,22.21 86.69,22.21 C89.15,22.21 91.10,24.23 91.10,26.68 M35.57,18.89 C35.57,21.34 33.55,23.36 31.10,23.36 C28.64,23.36 26.69,21.34 26.69,18.89 C26.69,16.43 28.64,14.48 31.10,14.48 C33.55,14.48 35.57,16.43 35.57,18.89 M73.34,19.97 C73.34,22.42 71.31,24.44 68.93,24.44 C66.40,24.44 64.45,22.42 64.45,19.97 C64.45,17.51 66.40,15.56 68.93,15.56 C71.31,15.56 73.34,17.51 73.34,19.97 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M17.81,26.68 C17.81,29.14 15.79,31.09 13.34,31.09 C10.88,31.09 8.86,29.14 8.86,26.68 C8.86,24.23 10.88,22.21 13.34,22.21 C15.79,22.21 17.81,24.23 17.81,26.68 M54.42,16.65 C54.42,19.10 52.47,21.12 50.01,21.12 C47.56,21.12 45.54,19.10 45.54,16.65 C45.54,14.19 47.56,12.24 50.01,12.24 C52.47,12.24 54.42,14.19 54.42,16.65 M91.10,26.68 C91.10,29.14 89.15,31.09 86.69,31.09 C84.24,31.09 82.22,29.14 82.22,26.68 C82.22,24.23 84.24,22.21 86.69,22.21 C89.15,22.21 91.10,24.23 91.10,26.68 M35.57,18.89 C35.57,21.34 33.55,23.36 31.10,23.36 C28.64,23.36 26.69,21.34 26.69,18.89 C26.69,16.43 28.64,14.48 31.10,14.48 C33.55,14.48 35.57,16.43 35.57,18.89 M73.34,19.97 C73.34,22.42 71.39,24.44 68.93,24.44 C66.48,24.44 64.45,22.42 64.45,19.97 C64.45,17.51 66.48,15.56 68.93,15.56 C71.39,15.56 73.34,17.51 73.34,19.97" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M19.98,57.80 C38.90,54.48 66.69,54.48 79.98,57.80 L84.45,31.09 L68.93,55.56 L68.93,24.44 L56.66,54.48 L50.01,21.12 L43.37,54.48 L31.10,23.36 L31.10,55.56 L15.57,31.09 L19.98,57.80 C19.98,62.21 23.37,62.21 25.54,66.68 C27.78,70.00 27.78,68.92 26.69,74.48 C23.37,76.65 23.37,80.04 23.37,80.04 C19.98,83.36 24.46,85.53 24.46,85.53 C38.90,87.76 61.13,87.76 75.57,85.53 C75.57,85.53 78.89,83.36 75.57,80.04 C75.57,80.04 76.66,76.65 73.34,74.48 C72.25,68.92 72.25,70.00 74.42,66.68 C76.66,62.21 79.98,62.21 79.98,57.80 C61.13,54.48 38.90,54.48 19.98,57.80 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M19.98,57.80 C38.90,54.48 66.69,54.48 79.98,57.80 L84.45,31.09 L68.93,55.56 L68.93,24.44 L56.66,54.48 L50.01,21.12 L43.37,54.48 L31.10,23.36 L31.10,55.56 L15.57,31.09 L19.98,57.80 C19.98,62.21 23.37,62.21 25.54,66.68 C27.78,70.00 27.78,68.92 26.69,74.48 C23.37,76.65 23.37,80.04 23.37,80.04 C19.98,83.36 24.46,85.53 24.46,85.53 C38.90,87.76 61.13,87.76 75.57,85.53 C75.57,85.53 78.89,83.36 75.57,80.04 C75.57,80.04 76.66,76.65 73.34,74.48 C72.25,68.92 72.25,70.00 74.42,66.68 C76.66,62.21 79.98,62.21 79.98,57.80 C61.13,54.48 38.90,54.48 19.98,57.80" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M25.54,66.68 C33.34,64.44 66.69,64.44 74.42,66.68 M26.69,74.48 C39.98,72.24 59.98,72.24 73.34,74.48" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-R" viewBox="0 0 100 100"><path d="M19.98,86.69 L79.98,86.69 L79.98,79.97 L19.98,79.97 L19.98,86.69 M26.70,79.97 L26.70,71.09 L73.34,71.09 L73.34,79.97 L26.70,79.97 M24.46,31.09 L24.46,19.97 L33.34,19.97 L33.34,24.45 L44.46,24.45 L44.46,19.97 L55.58,19.97 L55.58,24.45 L66.69,24.45 L66.69,19.97 L75.58,19.97 L75.58,31.09 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M19.98,86.69L19.98,79.97L79.98,79.97L79.98,86.69Z M26.70,79.97L73.34,79.97L73.34,71.09L26.70,71.09Z M24.46,31.09 L24.46,19.97 L33.34,19.97 L33.34,24.45 L44.46,24.45 L44.46,19.97 L55.58,19.97 L55.58,24.45 L66.69,24.45 L66.69,19.97 L75.58,19.97 L75.58,31.09" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M75.58,31.09 L68.86,37.81 L31.10,37.81 L24.46,31.09 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M75.58,31.09 L68.86,37.81 L31.10,37.81 L24.46,31.09" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M68.86,37.81 L68.86,65.53 L31.10,65.53 L31.10,37.81 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M68.86,37.81 L68.86,65.53 L31.10,65.53 L31.10,37.81" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M68.86,65.53 L72.25,71.09 L27.78,71.09 L31.10,65.53 Z" fill="#ffffff" fill-rule="evenodd"/><path d="M68.86,65.53 L72.25,71.09 L27.78,71.09 L31.10,65.53" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M24.46,31.09 L75.58,31.09" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-b" viewBox="0 0 100 100"><path d="M19.98,80.03 C27.56,77.87 42.51,80.97 50.01,75.56 C57.52,80.97 72.47,77.87 79.98,80.03 C79.98,80.03 83.66,81.19 86.69,84.44 C85.18,86.60 83.01,86.68 79.98,85.59 C72.47,83.43 57.52,86.60 50.01,83.35 C42.51,86.60 27.56,83.43 19.98,85.59 C17.02,86.68 14.85,86.60 13.34,84.44 C16.37,80.11 19.98,80.03 19.98,80.03 M33.34,71.15 C38.90,76.64 61.13,76.64 66.69,71.15 C67.78,67.76 66.69,66.68 66.69,66.68 C66.69,61.12 61.13,57.80 61.13,57.80 C73.34,54.47 74.42,32.24 50.01,23.36 C25.54,32.24 26.69,54.47 38.90,57.80 C38.90,57.80 33.34,61.12 33.34,66.68 C33.34,66.68 32.25,67.76 33.34,71.15 M55.57,17.80 C55.57,20.83 53.05,23.36 50.01,23.36 C46.91,23.36 44.46,20.83 44.46,17.80 C44.46,14.69 46.91,12.24 50.01,12.24 C53.05,12.24 55.57,14.69 55.57,17.80 Z" fill="#000000" fill-rule="evenodd"/><path d="M19.98,80.03 C27.56,77.87 42.51,80.97 50.01,75.56 C57.52,80.97 72.47,77.87 79.98,80.03 C79.98,80.03 83.66,81.19 86.69,84.44 C85.18,86.60 83.01,86.68 79.98,85.59 C72.47,83.43 57.52,86.60 50.01,83.35 C42.51,86.60 27.56,83.43 19.98,85.59 C17.02,86.68 14.85,86.60 13.34,84.44 C16.37,80.11 19.98,80.03 19.98,80.03 M33.34,71.08 C38.90,76.64 61.13,76.64 66.69,71.08 C67.78,67.76 66.69,66.68 66.69,66.68 C66.69,61.12 61.13,57.80 61.13,57.80 C73.34,54.47 74.42,32.24 50.01,23.36 C25.54,32.24 26.69,54.47 38.90,57.80 C38.90,57.80 33.34,61.12 33.34,66.68 C33.34,66.68 32.25,67.76 33.34,71.08 M55.57,17.80 C55.57,20.83 53.05,23.36 50.01,23.36 C46.91,23.36 44.46,20.83 44.46,17.80 C44.46,14.69 46.91,12.24 50.01,12.24 C53.05,12.24 55.57,14.69 55.57,17.80" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M38.90,57.80 L61.13,57.80 M33.34,66.68 L66.69,66.68 M50.01,34.47 L50.01,45.59 M44.46,40.03 L55.57,40.03" fill="none" stroke="#ffffff" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-k" viewBox="0 0 100 100"><path d="M50.01,25.88 L50.01,13.32" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M50.01,55.55 C50.01,55.55 59.97,38.88 56.65,32.23 C56.65,32.23 54.42,26.67 50.01,26.67 C45.53,26.67 43.37,32.23 43.37,32.23 C39.97,38.88 50.01,55.55 50.01,55.55 Z" fill="#000000" fill-rule="evenodd"/><path d="M50.01,55.55 C50.01,55.55 59.97,38.88 56.65,32.23 C56.65,32.23 54.49,26.67 50.01,26.67 C45.53,26.67 43.37,32.23 43.37,32.23 C39.97,38.88 50.01,55.55 50.01,55.55" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M25.53,82.20 C37.81,89.99 59.97,89.99 72.25,82.20 L72.25,66.67 C72.25,66.67 92.25,56.71 85.53,43.35 C76.65,28.91 55.57,35.55 50.01,52.23 L50.01,60.03 L50.01,52.23 C42.21,35.55 21.13,28.91 14.49,43.35 C7.77,56.71 25.53,65.59 25.53,65.59 L25.53,82.20 Z" fill="#000000" fill-rule="evenodd"/><path d="M25.53,82.27 C37.81,89.99 59.97,89.99 72.25,82.27 L72.25,66.67 C72.25,66.67 92.25,56.71 85.53,43.35 C76.65,28.91 55.57,35.55 50.01,52.23 L50.01,60.03 L50.01,52.23 C42.21,35.55 21.13,28.91 14.42,43.35 C7.77,56.71 25.53,65.59 25.53,65.59 L25.53,82.27" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M44.45,17.79 L55.57,17.79" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M71.09,65.59 C71.09,65.59 90.01,56.71 84.52,44.15 C75.93,31.15 55.57,40.03 50.01,54.47 L50.01,59.09 L50.01,54.47 C44.45,40.03 22.00,31.15 15.57,44.15 C10.01,56.71 26.33,64.15 26.33,64.15 M25.53,66.67 C37.81,60.03 59.97,60.03 72.25,66.67 M25.53,74.47 C37.81,67.76 59.97,67.76 72.25,74.47 M25.53,82.27 C37.81,75.55 59.97,75.55 72.25,82.27" fill="none" stroke="#ffffff" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-n" viewBox="0 0 100 100"><path d="M48.87,22.20 C72.19,24.44 85.54,40.04 84.46,86.68 L33.34,86.68 C33.34,66.68 55.58,72.24 51.10,40.04 Z" fill="#000000" fill-rule="evenodd"/><path d="M48.87,22.20 C72.26,24.44 85.54,40.04 84.46,86.68 L33.34,86.68 C33.34,66.68 55.58,72.24 51.10,40.04" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M53.34,40.04 C54.21,46.46 41.00,56.36 35.58,60.04 C28.87,64.44 29.30,69.64 24.46,68.92 C22.15,66.82 27.57,62.13 24.46,62.20 C22.22,62.20 24.89,64.95 22.22,66.68 C19.98,66.68 13.34,68.92 13.34,57.80 C13.34,53.32 26.70,31.09 26.70,31.09 C26.70,31.09 30.89,26.90 31.10,23.36 C29.52,21.12 30.02,18.88 30.02,16.64 C32.26,14.48 36.66,22.20 36.66,22.20 L41.14,22.20 C41.14,22.20 42.87,17.80 46.70,15.56 C48.87,15.56 48.87,22.20 48.87,22.20 Z" fill="#000000" fill-rule="evenodd"/><path d="M53.34,40.04 C54.21,46.46 41.00,56.36 35.58,60.04 C28.87,64.44 29.30,69.64 24.46,68.92 C22.15,66.82 27.57,62.13 24.46,62.20 C22.22,62.20 24.89,64.95 22.22,66.68 C19.98,66.68 13.34,68.92 13.34,57.80 C13.34,53.32 26.70,31.09 26.70,31.09 C26.70,31.09 30.89,26.90 31.10,23.36 C29.52,21.12 30.02,18.88 30.02,16.64 C32.26,14.48 36.66,22.20 36.66,22.20 L41.14,22.20 C41.14,22.20 42.87,17.80 46.70,15.56 C48.87,15.56 48.87,22.20 48.87,22.20" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M21.14,56.64 C21.14,57.29 20.63,57.80 19.98,57.80 C19.41,57.80 18.90,57.29 18.90,56.64 C18.90,56.07 19.41,55.56 19.98,55.56 C20.63,55.56 21.14,56.07 21.14,56.64 Z" fill="#ececec" fill-rule="evenodd"/><path d="M21.14,56.64 C21.14,57.29 20.63,57.80 19.98,57.80 C19.41,57.80 18.90,57.29 18.90,56.64 C18.90,56.07 19.41,55.56 19.98,55.56 C20.63,55.56 21.14,56.07 21.14,56.64" fill="none" stroke="#ececec" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M33.20,34.98 C32.26,36.57 31.10,37.66 30.53,37.37 C30.02,37.01 30.31,35.49 31.25,33.90 C32.19,32.31 33.34,31.23 33.92,31.59 C34.43,31.88 34.14,33.40 33.20,34.98 Z" fill="#ececec" fill-rule="evenodd"/><path d="M33.20,34.98 C32.26,36.57 31.10,37.66 30.53,37.37 C30.02,37.01 30.31,35.49 31.25,33.90 C32.19,32.31 33.34,31.23 33.92,31.59 C34.43,31.88 34.14,33.40 33.20,34.98" fill="none" stroke="#ececec" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M54.57,23.14 L53.56,26.32 L54.64,26.68 C61.64,28.92 67.20,32.17 72.19,41.70 C77.24,51.16 79.48,64.59 78.32,86.68 L78.25,87.76 L83.23,87.76 L83.30,86.68 C84.46,64.30 81.36,49.21 76.08,39.24 C70.81,29.28 63.23,24.51 55.72,23.36 L54.57,23.14 Z" fill="#ececec" fill-rule="evenodd"/></symbol><symbol id="pc-p" viewBox="0 0 100 100"><path d="M50.02,20.04 C45.11,20.04 41.14,24.01 41.14,28.92 C41.14,30.87 41.79,32.67 42.87,34.19 C38.54,36.64 35.58,41.34 35.58,46.68 C35.58,51.16 37.68,55.20 40.93,57.87 C34.21,60.18 24.46,70.22 24.46,87.76 L75.58,87.76 C75.58,70.22 65.76,60.18 59.12,57.87 C62.37,55.20 64.46,51.16 64.46,46.68 C64.46,41.34 61.50,36.64 57.17,34.19 C58.25,32.67 58.90,30.87 58.90,28.92 C58.90,24.01 54.93,20.04 50.02,20.04 Z" fill="#000000"/><path d="M50.02,20.04 C45.11,20.04 41.14,24.01 41.14,28.92 C41.14,30.87 41.79,32.67 42.87,34.19 C38.54,36.64 35.58,41.34 35.58,46.68 C35.58,51.16 37.68,55.20 40.93,57.87 C34.21,60.18 24.46,70.22 24.46,87.76 L75.58,87.76 C75.58,70.22 65.76,60.18 59.12,57.87 C62.37,55.20 64.46,51.16 64.46,46.68 C64.46,41.34 61.50,36.64 57.17,34.19 C58.25,32.67 58.90,30.87 58.90,28.92 C58.90,24.01 54.93,20.04 50.02,20.04" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-q" viewBox="0 0 100 100"><path d="M19.48,26.68 C19.48,30.07 16.73,32.81 13.34,32.81 C9.95,32.81 7.20,30.07 7.20,26.68 C7.20,23.28 9.95,20.54 13.34,20.54 C16.73,20.54 19.48,23.28 19.48,26.68 Z" fill="#000000" fill-rule="evenodd"/><path d="M37.24,20.03 C37.24,23.36 34.50,26.10 31.10,26.10 C27.71,26.10 25.04,23.36 25.04,20.03 C25.04,16.64 27.71,13.90 31.10,13.90 C34.50,13.90 37.24,16.64 37.24,20.03 Z" fill="#000000" fill-rule="evenodd"/><path d="M56.08,17.80 C56.08,21.19 53.41,23.86 50.02,23.86 C46.63,23.86 43.88,21.19 43.88,17.80 C43.88,14.40 46.63,11.66 50.02,11.66 C53.41,11.66 56.08,14.40 56.08,17.80 Z" fill="#000000" fill-rule="evenodd"/><path d="M75.00,20.03 C75.00,23.36 72.26,26.10 68.86,26.10 C65.54,26.10 62.80,23.36 62.80,20.03 C62.80,16.64 65.54,13.90 68.86,13.90 C72.26,13.90 75.00,16.64 75.00,20.03 Z" fill="#000000" fill-rule="evenodd"/><path d="M92.76,26.68 C92.76,30.07 90.02,32.81 86.70,32.81 C83.30,32.81 80.56,30.07 80.56,26.68 C80.56,23.28 83.30,20.54 86.70,20.54 C90.02,20.54 92.76,23.28 92.76,26.68 Z" fill="#000000" fill-rule="evenodd"/><path d="M19.98,57.80 C38.90,54.47 66.70,54.47 79.98,57.80 L85.54,30.00 L68.86,55.56 L68.21,24.22 L56.66,54.47 L50.02,22.20 L43.30,54.47 L31.75,24.22 L31.10,55.56 L14.42,30.00 L19.98,57.80 C19.98,62.20 23.30,62.20 25.54,66.68 C27.78,70.00 27.78,68.91 26.70,74.47 C23.30,76.64 23.30,80.03 23.30,80.03 C19.98,83.35 24.46,85.59 24.46,85.59 C38.90,87.76 61.14,87.76 75.58,85.59 C75.58,85.59 78.90,83.35 75.58,80.03 C75.58,80.03 76.66,76.64 73.34,74.47 C72.26,68.91 72.26,70.00 74.42,66.68 C76.66,62.20 79.98,62.20 79.98,57.80 C61.14,54.47 38.90,54.47 19.98,57.80 Z" fill="#000000" fill-rule="evenodd"/><path d="M19.98,57.80 C38.90,54.47 66.70,54.47 79.98,57.80 L85.54,30.00 L68.86,55.56 L68.21,24.22 L56.66,54.47 L50.02,22.20 L43.30,54.47 L31.75,24.22 L31.10,55.56 L14.42,30.00 L19.98,57.80 C19.98,62.20 23.30,62.20 25.54,66.68 C27.78,70.00 27.78,68.91 26.70,74.47 C23.30,76.64 23.30,80.03 23.30,80.03 C19.98,83.35 24.46,85.59 24.46,85.59 C38.90,87.76 61.14,87.76 75.58,85.59 C75.58,85.59 78.90,83.35 75.58,80.03 C75.58,80.03 76.66,76.64 73.34,74.47 C72.26,68.91 72.26,70.00 74.42,66.68 C76.66,62.20 79.98,62.20 79.98,57.80 C61.14,54.47 38.90,54.47 19.98,57.80" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M24.46,85.59 C40.99,91.30 58.97,91.30 75.58,85.59" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M24.46,64.44 C40.99,58.66 58.97,58.66 75.58,64.44 M27.78,70.00 L72.26,70.00 M25.54,76.64 C41.43,81.91 58.54,81.91 74.42,76.64 M23.30,83.35 C40.56,89.64 59.48,89.64 76.66,83.35" fill="none" stroke="#ffffff" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/></symbol><symbol id="pc-r" viewBox="0 0 100 100"><path d="M19.98,86.67 L79.98,86.67 L79.98,80.03 L19.98,80.03 L19.98,86.67 M27.78,71.15 L31.10,65.59 L68.86,65.59 L72.25,71.15 L27.78,71.15 M26.70,80.03 L26.70,71.15 L73.34,71.15 L73.34,80.03 L26.70,80.03 Z" fill="#000000" fill-rule="evenodd"/><path d="M19.98,86.67L19.98,80.03L79.98,80.03L79.98,86.67Z M27.78,71.15L72.25,71.15L68.86,65.59L31.10,65.59Z M26.70,80.03L73.34,80.03L73.34,71.15L26.70,71.15Z" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M31.10,65.59 L31.10,36.64 L68.86,36.64 L68.86,65.59 L31.10,65.59 Z" fill="#000000" fill-rule="evenodd"/><path d="M31.10,65.59L68.86,65.59L68.86,36.64L31.10,36.64Z" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M31.10,36.64 L24.46,31.15 L75.58,31.15 L68.86,36.64 L31.10,36.64 M24.46,31.15 L24.46,20.03 L33.34,20.03 L33.34,24.44 L44.46,24.44 L44.46,20.03 L55.58,20.03 L55.58,24.44 L66.69,24.44 L66.69,20.03 L75.58,20.03 L75.58,31.15 L24.46,31.15 Z" fill="#000000" fill-rule="evenodd"/><path d="M31.10,36.64L68.86,36.64L75.58,31.15L24.46,31.15Z M24.46,31.15 L24.46,20.03 L33.34,20.03 L33.34,24.44 L44.46,24.44 L44.46,20.03 L55.58,20.03 L55.58,24.44 L66.69,24.44 L66.69,20.03 L75.58,20.03 L75.58,31.15 L24.46,31.15" fill="none" stroke="#000000" stroke-width="3.34" stroke-linejoin="round" stroke-linecap="round"/><path d="M26.70,78.88 L73.34,78.88 M28.86,70.00 L71.10,70.00 M31.10,65.59 L68.86,65.59 M31.10,36.64 L68.86,36.64 M24.46,31.15 L75.58,31.15" fill="none" stroke="#ffffff" stroke-width="2.22" stroke-linejoin="round" stroke-linecap="round"/></symbol></defs></svg>
+
+<header class="top">
+  <div class="brand" id="home"><span class="pip"></span>Комбинаторика</div>
+  <div class="sp"></div>
+  <button class="navbtn" id="navReview">⏱ Разбор партии</button>
+  <button class="navbtn" id="navOpen">♞ Дебюты</button>
+  <div class="gauge"><span>Звёзды</span>
+    <div class="bar"><i id="gaugeBar" style="width:0%"></i></div><b id="gaugeTxt">0</b></div>
+  <button class="iconbtn" id="themeBtn" title="Тема" aria-label="Переключить тему">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+  </button>
+</header>
+
+<div class="wrap">
+  <section id="vBooks">
+    <div class="hero">
+      <h1>Мои сборники</h1>
+      <p>Задачники, разобранные из PDF: позиция читается из вёрстки книги, решение и сторона хода — из ключа в конце, и каждая пара проверяется до последнего хода. Сборники добавляются одной записью данных — вёрстка и логика не меняются.</p>
+    </div>
+    <div class="promo">
+      <div class="pi">⛭</div>
+      <div class="pb"><h3>Разбор своей партии</h3>
+        <p>Ссылка с chess.com или lichess, PGN или FEN — и Stockfish 18 разметит каждый ход: блестящие, лучшие, неточности, ошибки и зевки, точность и график оценки.</p></div>
+      <button class="go" id="promoGo">Разобрать партию →</button>
+    </div>
+    <div class="promo">
+      <div class="pi">♞</div>
+      <div class="pb"><h3>Мои дебюты</h3>
+        <p>Свой репертуар: вбиваешь варианты на доске или из PGN, а потом гоняешь их с интервальным повторением — пока каждый не пройдёшь чисто нужное число раз.</p></div>
+      <button class="go" id="promoOpen">Открыть дебюты →</button>
+    </div>
+    <div class="books" id="books"></div>
+    <footer>Разбор личный, прогресс хранится в этом браузере.</footer>
+  </section>
+
+  <section id="vSections" class="gone">
+    <div class="crumb"><button data-go="books">← Мои сборники</button></div>
+    <div class="pagehead">
+      <h1 id="bTitle"></h1><span class="sub" id="bSub"></span>
+      <div class="spacer"></div>
+      <button class="ghost" id="bReset">Сбросить прогресс</button>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section id="vList" class="gone">
+    <div class="crumb"><button data-go="books">Мои сборники</button><span class="sep">/</span>
+      <button data-go="sections" id="crumbBook"></button></div>
+    <div class="pagehead">
+      <h2 id="sTitle"></h2><span class="sub" id="sSub"></span>
+      <div class="spacer"></div>
+      <div class="filters">
+        <button data-f="all" aria-pressed="true">Все</button>
+        <button data-f="todo" aria-pressed="false">Нерешённые</button>
+        <button data-f="done" aria-pressed="false">Решённые</button>
+      </div>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <section id="vSolve" class="gone">
+    <div class="crumb"><button data-go="books">Мои сборники</button><span class="sep">/</span>
+      <button data-go="sections" id="crumbBook2"></button><span class="sep">/</span>
+      <button data-go="list" id="crumbSec"></button></div>
+    <div class="solve">
+      <div class="boardbox">
+        <div class="boardtools">
+          <button class="ghost" id="btnZen">⤢ Развернуть</button>
+          <button class="ghost" id="btnFlip">⇅ Перевернуть</button>
+          <div class="sp"></div><span class="fenlab" id="fenLab"></span>
+        </div>
+        <div class="boardarea"><div class="bwrap"><div class="rvebar gone" id="sfBar"><i></i><b></b></div><div class="boardgrid" id="board"></div></div></div>
+      </div>
+      <div class="panel">
+        <div class="pcard">
+          <h3 id="pTitle">Задача</h3>
+          <p class="meta" id="pMeta"></p>
+          <div class="turnrow">
+            <span class="chip"><span class="dot" id="pDot"></span><span id="pWho"></span></span>
+            <span id="pStatus"></span>
+          </div>
+          <div class="moves" id="pMoves"></div>
+        </div>
+        <div class="pcard zenkeep" id="pStateCard" style="padding:13px 14px">
+          <div class="state" id="pState"><span class="ic">?</span>
+            <span><b>Найди сильнейший ход</b>Тяни фигуру мышкой или кликни по ней, потом по полю.</span></div>
+        </div>
+        <div class="pcard zenkeep gone" id="pStarCard">
+          <div class="starbig"><div id="pStars"></div>
+            <div class="lab" id="pStarLab"></div><div class="sub" id="pStarSub"></div>
+            <button class="anbig" id="btnAnalyse2">🔎 Разобрать со Stockfish 18</button>
+            <label class="anauto"><input type="checkbox" id="anAuto"> открывать анализ сразу</label></div>
+        </div>
+        <div class="pcard zenkeep gone" id="pTurnCard">
+          <div class="turnbig"><div class="fig" id="pTurnFig"></div>
+            <div class="lab" id="pTurnLab"></div></div>
+        </div>
+        <div class="pcard zenkeep gone" id="pNoteCard">
+          <div class="notelab" id="pNoteLab">Комментарии к ходам</div>
+          <div class="notes" id="pNotes"></div>
+        </div>
+        <details class="pcard zenkeep gone" id="pFullCard">
+          <summary>Полный разбор из книги</summary>
+          <div class="full" id="pFull"></div>
+        </details>
+        <div class="pcard zenkeep gone" id="pAnCard">
+          <div class="anhead">
+            <div class="evalwrap"><div class="evalbar"><i id="evalFill"></i></div></div>
+            <div class="anmeta"><b id="anScore">—</b><span id="anDepth"></span></div>
+            <button class="ghost" id="anToggle">Включить движок</button>
+          </div>
+          <div class="anlines" id="anLines"></div>
+          <div class="anmoves" id="anMoves"></div>
+          <div class="annav">
+            <button id="anFirst" title="В начало">⏮</button>
+            <button id="anPrev" title="Назад">◀</button>
+            <button id="anNext" title="Вперёд">▶</button>
+            <button id="anLast" title="В конец">⏭</button>
+            <button id="anExit" class="go">← К задаче</button>
+          </div>
+          <p class="anhint">Двигай фигуры на доске — движок пересчитает позицию. Стрелки ← → перематывают ходы.</p>
+        </div>
+        <div class="pcard zenkeep" id="pActs">
+          <div class="acts">
+            <button id="btnHint">Подсказка</button>
+            <button id="btnSolution">Решение</button>
+            <button id="btnRetry">Заново</button>
+            <button id="btnExit" class="gone">Свернуть</button>
+            <button id="btnAnalyse">🔎 Анализ</button>
+            <button id="btnNext" class="go">Следующая задача →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vReview" class="gone">
+    <div class="crumb"><button data-go="books">← Мои сборники</button><span class="sep">/</span>
+      <span>Разбор партии</span></div>
+
+    <div id="rvInput">
+      <div class="hero">
+        <h1>Разбор партии</h1>
+        <p>Кидай ссылку на партию с chess.com или lichess, PGN или FEN — Stockfish 18 пройдёт по всем ходам
+           и разметит их, как отчёт на chess.com: блестящие ходы, лучшие, неточности, ошибки и зевки,
+           точность каждого игрока, график оценки и разбор каждого момента. Всё считается прямо в браузере,
+           подписка не нужна.</p>
+      </div>
+      <div class="rvform">
+        <textarea id="rvSrc" spellcheck="false"
+          placeholder="https://www.chess.com/game/174332344872&#10;https://lichess.org/xxxxxxxx&#10;— или вставь PGN целиком, или FEN позиции"></textarea>
+        <div class="rvex">
+          <button data-ex="pgn">вставить пример PGN</button>
+          <button data-ex="fen">разобрать позицию по FEN</button>
+        </div>
+        <div class="rvrow">
+          <span class="rvhint" style="margin:0">Глубина</span>
+          <div class="rvseg" id="rvDepth">
+            <button data-d="12" aria-pressed="false">Быстро</button>
+            <button data-d="16" aria-pressed="true">Обычно</button>
+            <button data-d="20" aria-pressed="false">Глубоко</button>
+          </div>
+          <div class="sp"></div>
+          <button class="rvgo" id="rvStart">Разобрать</button>
+        </div>
+        <p class="rvhint" id="rvNote">Движок скачивается один раз с CDN — для первого запуска нужен интернет.</p>
+        <div class="rverr gone" id="rvErr"></div>
+      </div>
+
+      <div class="rvmy">
+        <h3>Мои партии</h3>
+        <div class="rvmyrow">
+          <div class="rvseg" id="rvSite">
+            <button data-s="cc" aria-pressed="true">chess.com</button>
+            <button data-s="li" aria-pressed="false">lichess</button>
+          </div>
+          <input id="rvUser" placeholder="ник на сайте" spellcheck="false" autocomplete="off">
+          <button class="ghost" id="rvList">Показать последние</button>
+        </div>
+        <p class="rvhint">Ссылку с chess.com сайт находит по твоему архиву партий — ник нужен один раз, он запомнится.</p>
+        <div class="rvgames" id="rvGames"></div>
+      </div>
+      <footer>Разбор считает Stockfish 18 у тебя в браузере — ничего никуда не отправляется, кроме запроса самой партии.</footer>
+    </div>
+
+    <div id="rvProg" class="gone">
+      <div class="rvprog">
+        <h2 id="rvPTitle">Разбираю партию</h2>
+        <p id="rvPSub">Stockfish считает каждую позицию</p>
+        <div class="rvbar"><i id="rvPBar" style="width:0%"></i></div>
+        <div class="rvpct" id="rvPPct">0 / 0</div>
+        <div class="mini" id="rvPMini"></div>
+        <div class="rvrow" style="justify-content:center">
+          <button class="ghost" id="rvCancel">Отменить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rvReport" class="gone">
+      <div class="rvgrid">
+        <div class="rvboardbox">
+          <div class="rvtools">
+            <button class="ghost" id="rvFlip">⇅ Перевернуть</button>
+            <button class="ghost" id="rvNew">Другая партия</button>
+            <div class="sp"></div>
+            <span class="who" id="rvWho"></span>
+          </div>
+          <div class="rvpl" id="rvTop" style="margin-left:26px"></div>
+          <div class="rvbwrap">
+            <div class="rvebar" id="rvEbar"><i id="rvEfill"></i><b></b></div>
+            <div class="boardgrid" id="rvBoard"></div>
+          </div>
+          <div class="rvpl" id="rvBot" style="margin-left:26px"></div>
+          <div class="rvnav">
+            <button id="rvFirst" title="В начало">⏮</button>
+            <button id="rvPrev" title="Назад">◀</button>
+            <button id="rvNext" title="Вперёд">▶</button>
+            <button id="rvLast" title="В конец">⏭</button>
+            <button id="rvPrevErr" title="Предыдущая ошибка">⚑◀</button>
+            <button id="rvNextErr" title="Следующая ошибка">▶⚑</button>
+          </div>
+        </div>
+
+        <div class="rvpanel">
+          <div class="rvcard gone" id="rvSumCard">
+            <div class="rvsum" id="rvSum"></div>
+            <p class="rvres" id="rvResult"></p>
+          </div>
+          <div class="rvcard" id="rvVerdCard">
+            <div class="rvverd" id="rvVerd"></div>
+            <div id="rvLines"></div>
+            <div class="rvacts" id="rvActs"></div>
+            <div class="rvexp gone" id="rvExp"></div>
+          </div>
+          <div class="rvcard gone" id="rvGraphCard">
+            <h4>График оценки</h4>
+            <div class="rvgraph" id="rvGraph"></div>
+          </div>
+          <div class="rvcard gone" id="rvTabCard">
+            <h4>Ходы по типам</h4>
+            <table class="rvtab" id="rvTab"></table>
+          </div>
+          <div class="rvcard gone" id="rvKeyCard">
+            <h4>Ключевые моменты</h4>
+            <div class="rvkey" id="rvKey"></div>
+          </div>
+          <div class="rvcard gone" id="rvMovesCard">
+            <h4>Ходы партии</h4>
+            <div class="rvmoves" id="rvMoves"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vOpen" class="gone">
+    <div class="crumb"><button data-go="books">← Мои сборники</button><span class="sep">/</span>
+      <button id="opCrumbTop">Дебюты</button><span class="sep opc gone">/</span>
+      <span class="opc gone" id="opCrumbRep"></span></div>
+
+    <div id="opList">
+      <div class="hero">
+        <h1>Мои дебюты</h1>
+        <p>Свой репертуар: дебют — это папка, внутри варианты. Вбиваешь линии руками на доске или вставляешь
+           PGN, а потом тренируешь их с интервальным повторением: каждый вариант нужно пройти без ошибок
+           заданное число раз, дальше он возвращается на повтор через день, три, неделю и так далее.</p>
+      </div>
+      <div class="opio" id="opLoadBox">
+        <div class="opiolab">Загрузить дебют по ссылке: study с lichess (целиком или одна глава), PGN или просто ходы.
+          Каждая глава станет группой, каждая ветка — вариантом.</div>
+        <textarea id="opLoadText" spellcheck="false" style="min-height:74px"
+          placeholder="https://lichess.org/study/fEW0zkct"></textarea>
+        <div class="oprow" style="margin-bottom:0">
+          <div class="rvseg" id="opLoadSide">
+            <button data-s="w" aria-pressed="true">Играю белыми</button>
+            <button data-s="b" aria-pressed="false">Играю чёрными</button>
+          </div>
+          <label class="opcheck"><input type="checkbox" id="opChkOn1" checked>
+            отсеивать линии, где движок даёт плохо за меня</label>
+          <select class="opsel" id="opChkLvl1">
+            <option value="-80">строго (−0.8)</option>
+            <option value="-150" selected>обычно (−1.5)</option>
+            <option value="-250">мягко (−2.5)</option>
+          </select>
+          <div class="sp"></div>
+          <button class="rvgo" id="opLoadGo">Загрузить дебют</button>
+        </div>
+      </div>
+      <div class="opio gone" id="opNewBox">
+        <div class="opiolab">Новый дебют</div>
+        <input class="opinput" id="opNewName" spellcheck="false"
+               placeholder="Название — например «Сицилианская за чёрных» или «Мой репертуар 1.e4»">
+        <div class="oprow" style="margin:0">
+          <div class="rvseg" id="opNewSide">
+            <button data-s="w" aria-pressed="true">Играю белыми</button>
+            <button data-s="b" aria-pressed="false">Играю чёрными</button>
+          </div>
+          <label class="optarget">повторений на вариант
+            <select id="opNewTarget"><option>3</option><option>5</option><option>7</option></select>
+          </label>
+          <div class="sp"></div>
+          <button class="rvgo" id="opNewGo">Создать</button>
+          <button class="ghost" id="opNewCancel">Отмена</button>
+        </div>
+      </div>
+      <div class="opgrid" id="opCards"></div>
+      <div class="oprow" style="margin-top:20px">
+        <button class="rvgo" id="opNew">+ Новый дебют</button>
+        <button class="ghost" id="opTrainAll">Повторить всё, что пора</button>
+        <div class="sp"></div>
+        <button class="ghost" id="opExport">Экспорт</button>
+        <button class="ghost" id="opImport">Импорт</button>
+      </div>
+      <div class="opio gone" id="opIO">
+        <div class="opiolab" id="opIOLab"></div>
+        <textarea id="opIOText" spellcheck="false"></textarea>
+        <div class="oprow">
+          <button class="ghost" id="opIOCopy">Скопировать</button>
+          <button class="ghost" id="opIOSave">Сохранить файлом</button>
+          <div class="sp"></div>
+          <button class="rvgo" id="opIOApply">Загрузить</button>
+          <button class="ghost" id="opIOClose">Закрыть</button>
+        </div>
+      </div>
+      <footer>Репертуар хранится в этом браузере. Экспорт — чтобы перенести на другой компьютер или сделать копию.</footer>
+    </div>
+
+    <div id="opRep" class="gone">
+      <div class="pagehead">
+        <h1 id="opRepName"></h1><span class="sub" id="opRepSub"></span>
+        <div class="spacer"></div>
+        <button class="ghost" id="opRename">Переименовать</button>
+        <button class="ghost" id="opDelete">Удалить дебют</button>
+      </div>
+      <div class="opstats" id="opStats"></div>
+      <div class="oprow">
+        <button class="rvgo" id="opAddLine">+ Добавить вариант</button>
+        <button class="ghost" id="opTrainRep">Тренировать всё</button>
+        <button class="ghost" id="opTrainDue">Только то, что пора</button>
+        <button class="ghost" id="opTrainWeak">Слабые места</button>
+        <button class="ghost" id="opPgn">Загрузить: lichess / PGN</button>
+        <button class="ghost" id="opCheckAll">Проверить движком</button>
+        <div class="sp"></div>
+        <div class="rvseg" id="opViewSeg">
+          <button data-v="list" aria-pressed="true">Списком</button>
+          <button data-v="tree" aria-pressed="false">Деревом</button>
+        </div>
+        <label class="optarget">повторений
+          <select id="opTarget"><option>3</option><option>5</option><option>7</option></select>
+        </label>
+      </div>
+      <div class="opskip gone" id="opSkip"></div>
+      <div class="oplines" id="opLines"></div>
+      <div class="optree gone" id="opTree"></div>
+      <div class="opio gone" id="opPgnBox">
+        <div class="opiolab">Ссылка на study с lichess (целиком или одна глава), PGN или просто ходы.
+          Каждая ветка в скобках станет отдельным вариантом, глава — своей группой.</div>
+        <textarea id="opPgnText" spellcheck="false" placeholder="https://lichess.org/study/bnCq4MLp&#10;или&#10;1. e4 c5 2. Nf3 d6 (2... Nc6 3. d4 cxd4) 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6"></textarea>
+        <div class="oprow">
+          <button class="rvgo" id="opPgnAdd">Добавить варианты</button>
+          <label class="opcheck"><input type="checkbox" id="opChkOn2" checked>
+            отсеивать плохие за меня</label>
+          <select class="opsel" id="opChkLvl2">
+            <option value="-80">строго (−0.8)</option>
+            <option value="-150" selected>обычно (−1.5)</option>
+            <option value="-250">мягко (−2.5)</option>
+          </select>
+          <div class="sp"></div>
+          <button class="ghost" id="opPgnClose">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="opEdit" class="gone">
+      <div class="rvgrid">
+        <div class="rvboardbox">
+          <div class="rvtools">
+            <button class="ghost" id="opEFlip">⇅ Перевернуть</button>
+            <button class="ghost" id="opEBack">↶ Убрать ход</button>
+            <div class="sp"></div>
+            <span class="who" id="opEWho"></span>
+          </div>
+          <div class="rvbwrap">
+            <div class="rvebar gone" id="opEBar"><i></i><b></b></div>
+            <div class="boardgrid" id="opEBoard"></div>
+          </div>
+          <p class="rvhint">Играй ходы за обе стороны — так строится вариант. Клик по ходу в списке справа возвращает назад.</p>
+        </div>
+        <div class="rvpanel">
+          <div class="rvcard">
+            <h4 id="opELab">Новый вариант</h4>
+            <input class="opinput" id="opEName" placeholder="Название варианта" spellcheck="false">
+            <div class="opmoves" id="opEMoves"></div>
+            <div class="rvline gone" id="opECont"></div>
+            <p class="opfork gone" id="opEFork"></p>
+            <div class="rvline gone" id="opEEval"></div>
+            <div class="rvacts">
+              <button id="opEEngine">⚙ Движок</button>
+              <button id="opEPaste">Вставить ходы</button>
+              <button class="go" id="opESave">Сохранить</button>
+              <button id="opESaveNew">Сохранить как ветку</button>
+              <button id="opECancel">Отмена</button>
+            </div>
+            <p class="rvhint">← → ходят по варианту, ↑ ↓ переключают ветки из этой позиции.</p>
+          </div>
+          <div class="rvcard opio2 gone" id="opEPasteBox">
+            <textarea id="opEPasteText" spellcheck="false" placeholder="1.e4 e5 2.Nf3 Nc6 3.Bb5 a6"></textarea>
+            <div class="rvacts"><button class="go" id="opEPasteGo">Добавить к варианту</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="opTrain" class="gone">
+      <div class="rvgrid">
+        <div class="rvboardbox">
+          <div class="rvtools">
+            <button class="ghost" id="opTFlip">⇅ Перевернуть</button>
+            <button class="ghost" id="opTExit">Выйти</button>
+            <div class="sp"></div>
+            <span class="who" id="opTWho"></span>
+          </div>
+          <div class="rvbwrap">
+            <div class="rvebar gone" id="opTBar"><i></i><b></b></div>
+            <div class="boardgrid" id="opTBoard"></div>
+          </div>
+          <div class="optbar"><i id="opTProg"></i></div>
+        </div>
+        <div class="rvpanel">
+          <div class="rvcard optcard">
+            <div class="optop">
+              <span class="opmode" id="opTMode">Проверка</span>
+              <span class="opname" id="opTLab"></span>
+            </div>
+            <div class="opask" id="opTVerd"></div>
+            <div class="opmoves" id="opTMoves"></div>
+            <div class="rvacts" id="opTActs"></div>
+          </div>
+          <div class="rvcard" id="opTStatCard">
+            <h4>Сессия</h4>
+            <div class="opsess" id="opTStat"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== слой авторизации: модалка входа/регистрации ===== -->
+<div class="auth-back" id="authBack" hidden>
+  <div class="auth-dlg" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <button class="auth-x" id="authClose" aria-label="Закрыть">&times;</button>
+    <h2 id="authTitle">Вход</h2>
+    <p class="auth-lead" id="authLead">Прогресс, звёзды и дебютный репертуар будут храниться в облаке и подтянутся на любом устройстве.</p>
+
+    <div class="auth-tabs" id="authTabs">
+      <button data-mode="in" aria-pressed="true">Вход</button>
+      <button data-mode="up" aria-pressed="false">Регистрация</button>
+    </div>
+
+    <form id="authForm" novalidate>
+      <label class="auth-f">
+        <span>Почта</span>
+        <input type="email" id="authEmail" autocomplete="email" required placeholder="you@example.com">
+      </label>
+      <label class="auth-f" id="authPassWrap">
+        <span>Пароль</span>
+        <input type="password" id="authPass" autocomplete="current-password" required placeholder="минимум 6 символов">
+      </label>
+      <div class="auth-msg" id="authMsg" hidden></div>
+      <button type="submit" class="auth-go" id="authGo">Войти</button>
+    </form>
+
+    <div class="auth-alt">
+      <button type="button" id="authForgot">Забыли пароль?</button>
+    </div>
+  </div>
+</div>
+
+<div class="auth-boot" id="authBoot" hidden><div class="auth-boot-in"><i></i>Загружаю сохранения…</div></div>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>
