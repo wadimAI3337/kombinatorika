@@ -20,8 +20,10 @@
      kombi-theme   — тема оформления
      kombi-autoan  — автоматический разбор после решения
      kombi-rv-*    — НЕ синхронизируем: это локальный кэш работы движка */
-  var KEYS = ["kombi", "kombi-op", "kombi-theme", "kombi-autoan"];
-  var JSON_KEYS = { "kombi": true, "kombi-op": true };
+  /* kombi-stats    — сколько решено и заработано звёзд по дням
+     kombi-ext      — ники на lichess/chess.com и ежедневные снимки рейтинга */
+  var KEYS = ["kombi", "kombi-op", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext"];
+  var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-stats": true, "kombi-ext": true };
   var SYNCED = {}; KEYS.forEach(function (k) { SYNCED[k] = true; });
 
   var SB_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
@@ -172,6 +174,37 @@
     return order.map(function (id) { return byId[id]; });
   }
 
+  /* дневник активности: { "2026-09-12": {solved, stars, errs, hints} } —
+     за общий день берём большее значение, счётчики только растут */
+  function mergeStats(a, b) {
+    a = (a && typeof a === "object") ? a : {};
+    b = (b && typeof b === "object") ? b : {};
+    var out = {}, days = {};
+    Object.keys(a).forEach(function (d) { days[d] = 1; });
+    Object.keys(b).forEach(function (d) { days[d] = 1; });
+
+    Object.keys(days).forEach(function (d) {
+      var x = a[d] || {}, y = b[d] || {}, r = {};
+      ["solved", "stars", "errs", "hints"].forEach(function (f) {
+        var v = Math.max(x[f] || 0, y[f] || 0);
+        if (v) r[f] = v;
+      });
+      if (Object.keys(r).length) out[d] = r;
+    });
+    return out;
+  }
+
+  /* снимки с lichess/chess.com: дни объединяем, при совпадении оставляем локальный */
+  function mergeExt(a, b) {
+    a = (a && typeof a === "object") ? a : {};
+    b = (b && typeof b === "object") ? b : {};
+    return {
+      accounts: Object.assign({}, b.accounts || {}, a.accounts || {}),
+      days: Object.assign({}, b.days || {}, a.days || {}),
+      fetchedAt: Math.max(a.fetchedAt || 0, b.fetchedAt || 0)
+    };
+  }
+
   function mergeSnap(local, cloud) {
     var out = {};
     var prog = mergeProgress(local["kombi"], cloud["kombi"]);
@@ -179,6 +212,12 @@
 
     var reps = mergeReps(local["kombi-op"], cloud["kombi-op"]);
     if (reps.length) out["kombi-op"] = reps;
+
+    var stats = mergeStats(local["kombi-stats"], cloud["kombi-stats"]);
+    if (Object.keys(stats).length) out["kombi-stats"] = stats;
+
+    var ext = mergeExt(local["kombi-ext"], cloud["kombi-ext"]);
+    if (Object.keys(ext.accounts).length || Object.keys(ext.days).length) out["kombi-ext"] = ext;
 
     /* настройки — приоритет у устройства, с которого входим */
     ["kombi-theme", "kombi-autoan"].forEach(function (k) {
@@ -240,6 +279,53 @@
     });
   }
 
+  /* ---------- дневник: что решено за сегодня ----------
+     Приложение не помечает задачи датой, поэтому активность считаем сами:
+     на каждую запись прогресса сравниваем новое состояние с предыдущим
+     и прибавляем разницу к сегодняшнему дню. app.js при этом не меняется. */
+
+  var lastProg = null;
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + "-" +
+           String(d.getMonth() + 1).padStart(2, "0") + "-" +
+           String(d.getDate()).padStart(2, "0");
+  }
+
+  function diffProgress(before, after) {
+    var d = { solved: 0, stars: 0, errs: 0, hints: 0 };
+    Object.keys(after || {}).forEach(function (bid) {
+      var x = (before && before[bid]) || {}, y = after[bid] || {};
+      Object.keys(y).forEach(function (n) {
+        var p = x[n] || {}, q = y[n] || {};
+        if (q.solved && !p.solved) d.solved++;
+        if (q.hinted && !p.hinted) d.hints++;
+        var ds = (q.stars || 0) - (p.stars || 0); if (ds > 0) d.stars += ds;
+        var de = (q.errs || 0) - (p.errs || 0);   if (de > 0) d.errs += de;
+      });
+    });
+    return d;
+  }
+
+  function bumpStats(d) {
+    var all = safeParse(lsGet("kombi-stats")) || {};
+    var key = today(), day = all[key] || (all[key] = {});
+    ["solved", "stars", "errs", "hints"].forEach(function (f) {
+      if (d[f]) day[f] = (day[f] || 0) + d[f];
+    });
+    lsSet("kombi-stats", JSON.stringify(all));   /* не muted — пусть уедет в облако */
+  }
+
+  function trackProgress() {
+    var now = safeParse(lsGet("kombi")) || {};
+    if (lastProg) {
+      var d = diffProgress(lastProg, now);
+      if (d.solved || d.stars || d.errs || d.hints) bumpStats(d);
+    }
+    lastProg = now;
+  }
+
   /* ---------- отложенная отправка ---------- */
 
   function markDirty() {
@@ -274,7 +360,9 @@
 
     proto.setItem = function (k, v) {
       set.apply(this, arguments);
-      if (!muted && this === window.localStorage && SYNCED[k]) markDirty();
+      if (muted || this !== window.localStorage) return;
+      if (k === "kombi") trackProgress();
+      if (SYNCED[k]) markDirty();
     };
     proto.removeItem = function (k) {
       del.apply(this, arguments);
@@ -298,8 +386,18 @@
     appStarted = true;
     var boot = $("authBoot");
     if (boot) boot.hidden = true;
+
+    /* точка отсчёта для дневника: всё, что было решено до этого момента,
+       новой активностью не считается */
+    lastProg = safeParse(lsGet("kombi")) || {};
+
     var s = document.createElement("script");
     s.src = "app.js" + (VER ? "?v=" + VER : "");
+    s.onload = function () {
+      var t = document.createElement("script");
+      t.src = "stats.js" + (VER ? "?v=" + VER : "");
+      document.body.appendChild(t);
+    };
     document.body.appendChild(s);
   }
 
@@ -623,6 +721,21 @@
     flush: function () { dirty = true; return flush(); },
     merge: mergeSnap,
     user: function () { return user; }
+  };
+
+  /* то, чем пользуется stats.js */
+  window.kombiStats = {
+    today: today,
+    user: function () { return user; },
+    stats: function () { return safeParse(lsGet("kombi-stats")) || {}; },
+    ext: function () {
+      var e = safeParse(lsGet("kombi-ext")) || {};
+      e.accounts = e.accounts || {};
+      e.days = e.days || {};
+      return e;
+    },
+    saveExt: function (e) { lsSet("kombi-ext", JSON.stringify(e)); },
+    openLogin: function () { openDialog("in"); }
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

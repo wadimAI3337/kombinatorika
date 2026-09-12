@@ -3740,3 +3740,13 @@ loadReps();
 })();
 })();
 
+
+/* мост для stats.js: BOOKS и prog живут в области видимости этого файла,
+   снаружи их иначе не достать */
+window.KOMBI_APP = {
+  BOOKS: BOOKS,
+  get prog(){ return prog; },
+  starsOf: starsOf,
+  show: show,
+  gauge: gauge
+};
