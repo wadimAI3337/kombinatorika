@@ -186,7 +186,7 @@
 .dr-final span{font-size:12.5px; color:var(--ink-3)}
 
 /* вход в тренажёр — крупной кнопкой в правой панели, как на lichess и chess.com */
-.rvcta{margin-top:14px; padding-top:14px; border-top:1px solid var(--line-2)}
+.rvcta{padding:16px 18px}
 .rvcta button{display:flex; width:100%; align-items:center; justify-content:center;
   gap:9px; padding:12px 14px; border-radius:10px; font-size:14.5px; font-weight:700;
   background:var(--accent); color:var(--accent-ink)}

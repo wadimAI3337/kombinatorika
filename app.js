@@ -2403,7 +2403,7 @@ function drillStart(side){
   rv.drill = { side, list, i: 0, tries: 0, found: 0, shown: 0, skipped: 0,
                state: "ask", busy: false };
   rv.flip = side === "b";
-  ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard"]
+  ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard","rvDrillCta"]
     .forEach(id => $$(id).classList.add("gone"));
   $$("rvDrillCard").classList.remove("gone");
   drillShow();
@@ -2411,9 +2411,11 @@ function drillStart(side){
 
 function drillStop(){
   rv.drill = null;
+  rv.line = null;
   $$("rvDrillCard").classList.add("gone");
   ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard"]
     .forEach(id => $$(id).classList.remove("gone"));
+  drillOffer();
   if (rv.pos) ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard"]
     .forEach(id => $$(id).classList.add("gone"));
   goTo(rv.i);
@@ -2427,6 +2429,7 @@ function drillShow(){
   rv.line = null; rv.sel = null; rv.live = null; rv.livePvs = null;
   rwCancel();
   rv.i = m.k;                         /* позиция перед твоим ходом */
+  $$("rvVerdCard").classList.add("gone");      /* пока ищешь — без расчётов */
   renderBoard(); renderEval();
   drillPaint();
 }
@@ -2458,8 +2461,8 @@ function drillActs(){
   };
   if (d.state === "done"){ add("Выйти", drillStop); return; }
   if (d.state === "solved"){
-    add(d.i + 1 < d.list.length ? "Дальше →" : "Итог", drillNext, "rvgo");
-    add("Показать линию", drillShowLine);
+    add(d.i + 1 < d.list.length ? "Дальше →" : "Итог", drillNext, "go");
+    add("Линия движка", drillShowLine);
     add("Выйти", drillStop);
     return;
   }
@@ -2485,7 +2488,7 @@ function drillAnswer(mv){
 
   d.tries++;
   const best = m.best || "";
-  if (best && uci.slice(0, 4) === best.slice(0, 4)){ drillWin(san, 0, true); return; }
+  if (best && uci.slice(0, 4) === best.slice(0, 4)){ drillWin(mv, san, 0, true); return; }
 
   d.busy = true;
   rv.sel = null; renderBoard();
@@ -2502,13 +2505,13 @@ function drillAnswer(mv){
       const wB = winFor(before, rv.game.nodes[m.k].fen, m.side);
       const wA = winFor(after, mv.fen, m.side);
       const loss = Math.max(0, wB - wA);
-      if (loss < DRILL_OK) drillWin(san, loss, false);
+      if (loss < DRILL_OK) drillWin(mv, san, loss, false);
       else drillMiss(san, loss);
     });
   }).catch(() => { d.busy = false; });
 }
 
-function drillWin(san, loss, exact){
+function drillWin(mv, san, loss, exact){
   const d = rv.drill;
   d.state = "solved";
   if (d.tries <= 1) d.found++;
@@ -2519,7 +2522,18 @@ function drillWin(san, loss, exact){
   $$("drSay").innerHTML = '<span class="ok">' + esc(san) + " — то, что нужно.</span>" +
     '<p class="dim">' + how + (d.tries > 1 ? " Попыток: " + d.tries + "." : "") + "</p>";
   $$("drBar").style.width = (100 * (d.i + 1) / d.list.length) + "%";
+  drillPlay(mv);
   drillActs();
+}
+
+/* Ход найден — играем его на доске по-настоящему и открываем расчёты:
+   пока искал, движок молчал, дальше прятать оценку смысла нет. */
+function drillPlay(mv){
+  if (mv) pushNode(mv);
+  rv.sel = null; rv.live = null; rv.livePvs = null;
+  $$("rvVerdCard").classList.remove("gone");
+  renderAll();
+  rwLoad().then(ok => ok && liveEval());
 }
 
 function drillMiss(san, loss){
@@ -2535,12 +2549,14 @@ function drillSolve(){
   const d = rv.drill, m = drillCur();
   const fen = rv.game.nodes[m.k].fen;
   const san = sanOf(fen, m.best) || "—";
+  const mv = m.best && m.best.length >= 4
+    ? makeMove(fen, m.best.slice(0, 2), m.best.slice(2, 4), m.best[4]) : null;
   d.state = "solved"; d.shown++;
   drillBump("drills");
   $$("drSay").innerHTML = '<span class="dim">Сильнее всего было <b style="color:var(--ink)">' +
-    esc(san) + "</b>.</span>" + '<p class="dim">Посмотри линию — и дальше.</p>';
+    esc(san) + "</b>.</span>" + '<p class="dim">Ход сделан на доске, расчёты — ниже.</p>';
+  drillPlay(mv);
   drillActs();
-  drillShowLine();
 }
 
 function drillShowLine(){
