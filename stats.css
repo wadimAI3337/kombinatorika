@@ -184,3 +184,14 @@
 .dr-final b{display:block; font-family:"Literata",Georgia,serif; font-size:26px;
   letter-spacing:-.01em; margin-bottom:4px}
 .dr-final span{font-size:12.5px; color:var(--ink-3)}
+
+/* вход в тренажёр — крупной кнопкой в правой панели, как на lichess и chess.com */
+.rvcta{margin-top:14px; padding-top:14px; border-top:1px solid var(--line-2)}
+.rvcta button{display:flex; width:100%; align-items:center; justify-content:center;
+  gap:9px; padding:12px 14px; border-radius:10px; font-size:14.5px; font-weight:700;
+  background:var(--accent); color:var(--accent-ink)}
+.rvcta button:hover{filter:brightness(1.06)}
+.rvcta button .n{padding:1px 8px; border-radius:20px; font-size:12.5px;
+  background:rgba(0,0,0,.16)}
+.rvcta .sub{margin:8px 2px 0; font-size:12px; line-height:1.45; color:var(--ink-3);
+  text-align:center}

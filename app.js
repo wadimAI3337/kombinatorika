@@ -2354,16 +2354,26 @@ window.show = v => { if (v !== "review") rwCancel(); return _show(v); };
    меньше 5 пунктов, то есть «хорошо» или лучше.
    ============================================================ */
 
-/* кнопка появляется, только если ошибки за твою сторону вообще есть */
+/* Вход в тренажёр — крупной кнопкой в правой панели, сразу под точностью.
+   Раньше он прятался в ряду серых кнопок над доской, и его не находили. */
 function drillOffer(){
-  const btn = $$("rvDrill");
-  if (!btn) return;
-  if (rv.pos || !rv.moves.length){ btn.classList.add("gone"); return; }
+  const box = $$("rvDrillCta");
+  if (!box) return;
+  if (rv.pos || !rv.moves.length){ box.classList.add("gone"); return; }
+
   const side = drillMySide();
   const n = drillList(side).length;
-  btn.classList.toggle("gone", !n);
-  btn.textContent = "⚑ Работа над ошибками · " + n;
-  btn.onclick = () => drillStart(side);
+  if (!n){ box.classList.add("gone"); return; }
+
+  const who = side === "w" ? rv.game.white : rv.game.black;
+  box.classList.remove("gone");
+  box.innerHTML = '<button type="button">⚑ Разобрать свои ошибки<span class="n"></span></button>' +
+                  '<p class="sub"></p>';
+  box.querySelector(".n").textContent = n;
+  box.querySelector(".sub").textContent =
+    "Позиции, где ошибся " + (who ? who : side === "w" ? "белый" : "чёрный") +
+    ". Ход ищешь сам — движок молчит.";
+  box.querySelector("button").onclick = () => drillStart(side);
 }
 
 /* Порог взят у lichess: в retrospect/retroCtrl.ts ход принимается, если
