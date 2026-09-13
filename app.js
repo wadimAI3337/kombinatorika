@@ -2366,7 +2366,12 @@ function drillOffer(){
   btn.onclick = () => drillStart(side);
 }
 
-const DRILL_OK = 5;          /* допустимая потеря шансов на победу */
+/* Порог взят у lichess: в retrospect/retroCtrl.ts ход принимается, если
+   povDiff > -0.04. Формула шансов одна и та же, но шкалы разные: у них
+   povChances лежит в -1…1 и povDiff делится пополам, у нас Wcp = 50 + 50*raw
+   даёт 0…100. Итого наша потеря ровно в 100 раз больше их povDiff — значит
+   их 0.04 это наши 4.0 пункта. */
+const DRILL_OK = 4;          /* допустимая потеря шансов на победу */
 const DRILL_DEPTH = 14;      /* проверка ответа — быстрее, чем разбор партии */
 
 function drillMySide(){
