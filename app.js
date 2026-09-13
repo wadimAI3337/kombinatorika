@@ -2138,7 +2138,10 @@ function pushNode(mv){
 function playMove(from, to){
   const n = curNode(), mv = makeMove(n.fen, from, to);
   if (!mv){ rv.sel = null; renderBoard(); return; }
-  if (rv.drill && rv.drill.state !== "done"){ drillAnswer(mv); return; }
+  /* Перехватываем ход только пока идёт поиск. После того как ответ принят,
+     доска снова обычная: можно разбирать любые варианты руками, в том числе
+     вторую и третью линии движка. */
+  if (rv.drill && rv.drill.state === "ask"){ drillAnswer(mv); return; }
   pushNode(mv);
   rv.follow = [];
   rv.sel = null; rv.live = null; rv.livePvs = null;
@@ -2459,6 +2462,10 @@ function drillActs(){
     b.onclick = fn;
     host.appendChild(b);
   };
+  const hint = $$("drHint");
+  if (hint) hint.textContent = d.state === "solved"
+    ? "Доска свободна: двигай фигуры и разбирай любые варианты, хоть вторую линию, хоть третью."
+    : "";
   if (d.state === "done"){ add("Выйти", drillStop); return; }
   if (d.state === "solved"){
     add(d.i + 1 < d.list.length ? "Дальше →" : "Итог", drillNext, "go");
