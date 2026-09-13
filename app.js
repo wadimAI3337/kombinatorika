@@ -1660,8 +1660,9 @@ async function startReview(src){
 function finishReview(){
   classifyAll();
   rv.acc = { w: playerAcc("w"), b: playerAcc("b") };
-  rv.i = 0; rv.line = null; rv.sel = null;
+  rv.i = 0; rv.line = null; rv.sel = null; rv.drill = null;
   rvState("report");
+  drillOffer();
   renderSummary(); renderTable(); renderMoves(); renderGraph(); renderKey();
   goTo(rv.moves.length ? 1 : 0);
 }
@@ -1762,6 +1763,8 @@ function renderBoard(){
 }
 function drawRvArrows(){
   const host = $$("rvBoard"), n = curNode();
+  /* в тренажёре стрелка лучшего хода — это готовый ответ */
+  if (drillHiding()){ const old = $$("rvArrow"); if (old) old.remove(); return; }
   const ctr = sq => { const f = FILES.indexOf(sq[0]), r = +sq[1] - 1;
     return rv.flip ? [7 - f + .5, r + .5] : [f + .5, 7 - r + .5]; };
   const arrow = (from, to, col, w) => {
@@ -1779,9 +1782,19 @@ function drawRvArrows(){
   host.insertAdjacentHTML("beforeend",
     `<svg id="rvArrow" viewBox="0 0 8 8" preserveAspectRatio="none">${g}</svg>`);
 }
+/* true, пока игрок ищет ход: оценку и стрелки прячем */
+function drillHiding(){ return !!(rv.drill && rv.drill.state === "ask"); }
+
 function renderEval(){
   if (!rv.game) return;
   const n = curNode();
+  if (drillHiding()){
+    evalBar($$("rvEbar"), null, n.fen, rv.flip, "hidden");
+    $$("rvWho").innerHTML = '<b class="ev">?</b> · ' +
+      (turnOf(n.fen) === "w" ? "ход белых" : "ход чёрных");
+    renderNames();
+    return;
+  }
   const e = rv.line ? rv.live : rv.evals[rv.i];
   const over = !anyLegal(n.fen);
   let w = e ? winFor(e, n.fen, "w") : 50;
@@ -2125,6 +2138,7 @@ function pushNode(mv){
 function playMove(from, to){
   const n = curNode(), mv = makeMove(n.fen, from, to);
   if (!mv){ rv.sel = null; renderBoard(); return; }
+  if (rv.drill && rv.drill.state !== "done"){ drillAnswer(mv); return; }
   pushNode(mv);
   rv.follow = [];
   rv.sel = null; rv.live = null; rv.livePvs = null;
@@ -2327,6 +2341,239 @@ $$("rvUser").value = LS.get("kombi-cc-user", "wadim3337");
 ["navReview","promoGo"].forEach(id => { const el = $$(id); if (el) el.onclick = openReview; });
 const _show = window.show;
 window.show = v => { if (v !== "review") rwCancel(); return _show(v); };
+
+/* ============================================================
+   РАБОТА НАД ОШИБКАМИ
+
+   Устроено как у lichess: берём позиции, где ты сам ошибся, и
+   просишь найти ход получше — без подсказок движка. Засчитываем
+   не совпадение с первой линией, а любой ход, который сам не
+   является ошибкой: в шахматах хороших ходов обычно несколько.
+
+   Порог — та же шкала, что и в разборе: потеря шансов на победу
+   меньше 5 пунктов, то есть «хорошо» или лучше.
+   ============================================================ */
+
+/* кнопка появляется, только если ошибки за твою сторону вообще есть */
+function drillOffer(){
+  const btn = $$("rvDrill");
+  if (!btn) return;
+  if (rv.pos || !rv.moves.length){ btn.classList.add("gone"); return; }
+  const side = drillMySide();
+  const n = drillList(side).length;
+  btn.classList.toggle("gone", !n);
+  btn.textContent = "⚑ Работа над ошибками · " + n;
+  btn.onclick = () => drillStart(side);
+}
+
+const DRILL_OK = 5;          /* допустимая потеря шансов на победу */
+const DRILL_DEPTH = 14;      /* проверка ответа — быстрее, чем разбор партии */
+
+function drillMySide(){
+  const u = (($$("rvUser").value || "") || LS.get("kombi-cc-user", "")).trim().toLowerCase();
+  const w = String(rv.game.white || "").toLowerCase();
+  const b = String(rv.game.black || "").toLowerCase();
+  if (u && w && w.indexOf(u) >= 0) return "w";
+  if (u && b && b.indexOf(u) >= 0) return "b";
+  return rv.flip ? "b" : "w";
+}
+
+function drillList(side){
+  return rv.moves.filter(m => m.side === side && BADCAT[m.cat] && !m.bookPly);
+}
+
+function drillStart(side){
+  const list = drillList(side);
+  if (!list.length) return;
+  rv.drill = { side, list, i: 0, tries: 0, found: 0, shown: 0, skipped: 0,
+               state: "ask", busy: false };
+  rv.flip = side === "b";
+  ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard"]
+    .forEach(id => $$(id).classList.add("gone"));
+  $$("rvDrillCard").classList.remove("gone");
+  drillShow();
+}
+
+function drillStop(){
+  rv.drill = null;
+  $$("rvDrillCard").classList.add("gone");
+  ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard"]
+    .forEach(id => $$(id).classList.remove("gone"));
+  if (rv.pos) ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard"]
+    .forEach(id => $$(id).classList.add("gone"));
+  goTo(rv.i);
+}
+
+const drillCur = () => rv.drill.list[rv.drill.i];
+
+function drillShow(){
+  const d = rv.drill, m = drillCur();
+  d.state = "ask"; d.tries = 0; d.busy = false;
+  rv.line = null; rv.sel = null; rv.live = null; rv.livePvs = null;
+  rwCancel();
+  rv.i = m.k;                         /* позиция перед твоим ходом */
+  renderBoard(); renderEval();
+  drillPaint();
+}
+
+function drillPaint(say){
+  const d = rv.drill, m = drillCur(), n = d.list.length;
+  $$("drCount").textContent = (d.i + 1) + " / " + n;
+  $$("drBar").style.width = (100 * d.i / n) + "%";
+
+  const num = Math.floor(m.k / 2) + 1;
+  const who = m.side === "w" ? "белыми" : "чёрными";
+  $$("drAsk").innerHTML =
+    "Ход <b>" + num + "</b>, ты играл " + who + ". Найди ход сильнее — движок молчит." +
+    '<div class="dr-was"><i style="background:' + CAT[m.cat].c + '"></i>' +
+    "в партии было " + esc(m.san) + " — " + CAT[m.cat].t.toLowerCase() + "</div>";
+  $$("drSay").innerHTML = say || "";
+  drillActs();
+}
+
+function drillActs(){
+  const d = rv.drill, host = $$("drActs");
+  host.innerHTML = "";
+  const add = (txt, fn, cls) => {
+    const b = document.createElement("button");
+    b.className = cls || "ghost";
+    b.textContent = txt;
+    b.onclick = fn;
+    host.appendChild(b);
+  };
+  if (d.state === "done"){ add("Выйти", drillStop); return; }
+  if (d.state === "solved"){
+    add(d.i + 1 < d.list.length ? "Дальше →" : "Итог", drillNext, "rvgo");
+    add("Показать линию", drillShowLine);
+    add("Выйти", drillStop);
+    return;
+  }
+  add("Показать решение", drillSolve);
+  add(d.i + 1 < d.list.length ? "Пропустить" : "Закончить", drillSkip);
+  add("Выйти", drillStop);
+}
+
+/* ответ игрока: ход принимается, если он сам не ошибка */
+function drillAnswer(mv){
+  const d = rv.drill, m = drillCur();
+  if (d.busy || d.state !== "ask") { rv.sel = null; renderBoard(); return; }
+  const uci = mv.uci;
+  const san = figurine(mv.san, m.side);
+
+  /* повтор своего же хода за попытку не считаем — это просто «не то» */
+  if (uci === m.uci || uci.slice(0, 4) === m.uci.slice(0, 4)){
+    $$("drSay").innerHTML = '<span class="no">Это тот же ход, что был в партии.</span>' +
+      '<p class="dim">Ищем что-то другое.</p>';
+    rv.sel = null; renderBoard();
+    return;
+  }
+
+  d.tries++;
+  const best = m.best || "";
+  if (best && uci.slice(0, 4) === best.slice(0, 4)){ drillWin(san, 0, true); return; }
+
+  d.busy = true;
+  rv.sel = null; renderBoard();
+  $$("drSay").innerHTML = '<span class="dim"><i class="dr-spin"></i>Проверяю ' + esc(san) + '…</span>';
+
+  const before = rv.evals[m.k];
+  rwLoad().then(ok => {
+    if (!ok){ d.busy = false; $$("drSay").innerHTML = '<span class="dim">Движок не загрузился — нужен интернет.</span>'; return; }
+    return rwGo(mv.fen, DRILL_DEPTH, 1, null, 6000).then(res => {
+      d.busy = false;
+      if (!rv.drill || drillCur() !== m) return;
+      const after = (res.pvs || [])[0];
+      if (!after){ $$("drSay").innerHTML = '<span class="dim">Не получилось проверить — попробуй ещё раз.</span>'; return; }
+      const wB = winFor(before, rv.game.nodes[m.k].fen, m.side);
+      const wA = winFor(after, mv.fen, m.side);
+      const loss = Math.max(0, wB - wA);
+      if (loss < DRILL_OK) drillWin(san, loss, false);
+      else drillMiss(san, loss);
+    });
+  }).catch(() => { d.busy = false; });
+}
+
+function drillWin(san, loss, exact){
+  const d = rv.drill;
+  d.state = "solved";
+  if (d.tries <= 1) d.found++;
+  drillBump(d.tries <= 1 ? "fixed" : "drills");
+  const how = exact ? "Это и есть первая линия движка."
+    : loss < 1 ? "Позиция держится полностью."
+    : "Потеря всего " + loss.toFixed(1) + " — это уже не ошибка.";
+  $$("drSay").innerHTML = '<span class="ok">' + esc(san) + " — то, что нужно.</span>" +
+    '<p class="dim">' + how + (d.tries > 1 ? " Попыток: " + d.tries + "." : "") + "</p>";
+  $$("drBar").style.width = (100 * (d.i + 1) / d.list.length) + "%";
+  drillActs();
+}
+
+function drillMiss(san, loss){
+  const m = drillCur();
+  const worse = loss >= 18 ? "тоже зевок" : loss >= 10 ? "тоже ошибка" : "тоже неточность";
+  $$("drSay").innerHTML = '<span class="no">' + esc(san) + " — " + worse + ".</span>" +
+    '<p class="dim">Шансы падают на ' + loss.toFixed(1) + " — в партии ты потерял " +
+    m.loss.toFixed(1) + ". Попробуй другой ход.</p>";
+  drillActs();
+}
+
+function drillSolve(){
+  const d = rv.drill, m = drillCur();
+  const fen = rv.game.nodes[m.k].fen;
+  const san = sanOf(fen, m.best) || "—";
+  d.state = "solved"; d.shown++;
+  drillBump("drills");
+  $$("drSay").innerHTML = '<span class="dim">Сильнее всего было <b style="color:var(--ink)">' +
+    esc(san) + "</b>.</span>" + '<p class="dim">Посмотри линию — и дальше.</p>';
+  drillActs();
+  drillShowLine();
+}
+
+function drillShowLine(){
+  const m = drillCur(), e = rv.evals[m.k];
+  if (e && e.pv && e.pv.length) playLine(m.k, e.pv, Math.min(6, e.pv.length));
+}
+
+function drillSkip(){
+  rv.drill.skipped++;
+  drillBump("drills");
+  drillNext();
+}
+
+function drillNext(){
+  const d = rv.drill;
+  if (d.i + 1 >= d.list.length){ drillFinish(); return; }
+  d.i++;
+  drillShow();
+}
+
+function drillFinish(){
+  const d = rv.drill;
+  d.state = "done";
+  $$("drCount").textContent = d.list.length + " / " + d.list.length;
+  $$("drBar").style.width = "100%";
+  const n = d.list.length;
+  $$("drAsk").innerHTML = '<div class="dr-final"><b>' + d.found + " из " + n + "</b>" +
+    "<span>нашёл сам, с первой попытки</span></div>";
+  const bits = [];
+  if (d.shown) bits.push("решение открыто " + d.shown + " раз" + (d.shown > 1 ? "а" : ""));
+  if (d.skipped) bits.push("пропущено " + d.skipped);
+  $$("drSay").innerHTML = bits.length ? '<p class="dim">' + bits.join(", ") + '.</p>' : "";
+  drillActs();
+}
+
+/* в дневник активности — чтобы работа над ошибками была видна в статистике */
+function drillBump(field){
+  try {
+    const all = JSON.parse(localStorage.getItem("kombi-stats") || "{}");
+    const t = new Date();
+    const k = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") +
+              "-" + String(t.getDate()).padStart(2, "0");
+    const day = all[k] || (all[k] = {});
+    day.drills = (day.drills || 0) + 1;
+    if (field === "fixed") day.fixed = (day.fixed || 0) + 1;
+    localStorage.setItem("kombi-stats", JSON.stringify(all));
+  } catch(e){}
+}
 
 /* общий шахматный инструментарий для других разделов */
 window.__chess = {

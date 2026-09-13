@@ -531,6 +531,11 @@
         '<div class="st-plot" id="stBars"></div>' +
       '</div>' +
       '<div class="st-card">' +
+        '<h3>Работа над ошибками</h3>' +
+        '<p class="st-cap">Разбор партии → «Работа над ошибками»: ищешь ход за себя, движок молчит.</p>' +
+        '<div id="stDrill"></div>' +
+      '</div>' +
+      '<div class="st-card">' +
         '<h3>Рейтинг</h3><p class="st-cap">Тянется с lichess и chess.com сама. Кружок — день, когда ты играл или решал; ровный участок — перерыв.</p>' +
         '<div class="st-bar"><div class="st-seg" id="stCtrl">' +
           '<button data-c="rapid" aria-pressed="true">Рапид</button>' +
@@ -741,6 +746,9 @@
       lineChart(plot, series, dates);
     }
 
+    /* --- работа над ошибками --- */
+    drillBox(root.querySelector("#stDrill"), st, dates);
+
     /* --- карта активности --- */
     heatmap(root.querySelector("#stMap"), st, e.days || {});
 
@@ -798,6 +806,50 @@
     });
   }
 
+  /* Сколько ошибок разобрано и сколько найдено с первой попытки.
+     Именно этот разбор, а не число сыгранных партий, в исследованиях
+     оказывается сильнее связан с ростом. */
+  function drillBox(host, st, dates){
+    host.innerHTML = "";
+    var done = 0, self = 0, days = 0;
+    dates.forEach(function (d) {
+      var x = st[d] || {};
+      if (!x.drills) return;
+      done += x.drills; self += x.fixed || 0; days++;
+    });
+
+    if (!done) {
+      host.appendChild(emptyBox(
+        "Разбери свою партию — и позиции, где ты ошибся, станут задачами.",
+        "Пока ни одной"));
+      return;
+    }
+
+    var pct = Math.round(100 * self / done);
+    var row = document.createElement("div");
+    row.className = "st-tiles";
+    row.style.marginBottom = "0";
+    [
+      { lab: "Разобрано ошибок", num: done,
+        note: "за " + dates.length + " " + plural(dates.length, "день", "дня", "дней") },
+      { lab: "Нашёл сам", num: self, cls: "flame",
+        note: "с первой попытки" },
+      { lab: "Доля", num: pct + "%", cls: pct >= 50 ? "up" : "",
+        note: "своих решений" },
+      { lab: "Дней с разбором", num: days,
+        note: plural(days, "день из " + dates.length, "дня из " + dates.length, "дней из " + dates.length) }
+    ].forEach(function (x) {
+      var d = document.createElement("div");
+      d.className = "st-tile";
+      d.innerHTML = '<div class="st-k"></div><div class="st-v ' + (x.cls || "") + '"></div><div class="st-n"></div>';
+      d.querySelector(".st-k").textContent = x.lab;
+      d.querySelector(".st-v").textContent = x.num;
+      d.querySelector(".st-n").textContent = x.note;
+      row.appendChild(d);
+    });
+    host.appendChild(row);
+  }
+
   /* Карта активности за 18 недель. Одна клетка — день, насыщенность растёт
      вместе с нагрузкой. Пустые клетки тоже говорящие: по ним сразу видно,
      где был перерыв, а где ты вернулся и разобрал всё за вечер. */
@@ -818,10 +870,11 @@
       var ext = (days[k] || {});
       var gm = ((ext.li || {}).games || 0) + ((ext.cc || {}).games || 0);
       var pz = (ext.li || {}).puzzlesDay || 0;          /* задачи, решённые на lichess */
+      var dr = (st[k] || {}).drills || 0;               /* разобранные свои ошибки */
       var future = d > new Date();
-      var total = mine + gm + pz;
-      if (total > peak.n) peak = { n: total, k: k, mine: mine, gm: gm, pz: pz };
-      cells.push({ k: k, wd: (d.getDay() + 6) % 7, mine: mine, gm: gm, pz: pz,
+      var total = mine + gm + pz + dr;
+      if (total > peak.n) peak = { n: total, k: k, mine: mine, gm: gm, pz: pz, dr: dr };
+      cells.push({ k: k, wd: (d.getDay() + 6) % 7, mine: mine, gm: gm, pz: pz, dr: dr,
                    total: total, future: future });
     }
 
@@ -855,6 +908,7 @@
           var parts = [];
           if (c.mine) parts.push(c.mine + " " + plural(c.mine, "задача", "задачи", "задач") + " здесь");
           if (c.pz) parts.push(c.pz + " " + plural(c.pz, "задача", "задачи", "задач") + " на lichess");
+          if (c.dr) parts.push(c.dr + " " + plural(c.dr, "ошибка разобрана", "ошибки разобрано", "ошибок разобрано"));
           if (c.gm) parts.push(c.gm + " " + plural(c.gm, "партия", "партии", "партий"));
           tipAt(host, el, human(c.k), parts.length ? parts.join(" · ") : "ничего");
         });
@@ -871,6 +925,7 @@
       var bits = [];
       if (peak.mine) bits.push(peak.mine + " " + plural(peak.mine, "задача", "задачи", "задач") + " здесь");
       if (peak.pz) bits.push(peak.pz + " " + plural(peak.pz, "задача", "задачи", "задач") + " на lichess");
+      if (peak.dr) bits.push(peak.dr + " " + plural(peak.dr, "ошибка разобрана", "ошибки разобрано", "ошибок разобрано"));
       if (peak.gm) bits.push(peak.gm + " " + plural(peak.gm, "партия", "партии", "партий"));
       cap.textContent = "Задачи и партии — здесь и на обоих сайтах. Самый плотный день — " +
         human(peak.k) + ": " + bits.join(", ") + ".";
