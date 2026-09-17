@@ -22,8 +22,8 @@
      kombi-rv-*    — НЕ синхронизируем: это локальный кэш работы движка */
   /* kombi-stats    — сколько решено и заработано звёзд по дням
      kombi-ext      — ники на lichess/chess.com и ежедневные снимки рейтинга */
-  var KEYS = ["kombi", "kombi-op", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext"];
-  var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-stats": true, "kombi-ext": true };
+  var KEYS = ["kombi", "kombi-op", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext", "kombi-notes"];
+  var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-stats": true, "kombi-ext": true, "kombi-notes": true };
   var SYNCED = {}; KEYS.forEach(function (k) { SYNCED[k] = true; });
 
   var SB_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
@@ -174,8 +174,8 @@
     return order.map(function (id) { return byId[id]; });
   }
 
-  /* дневник активности: { "2026-09-12": {solved, stars, errs, hints} } —
-     за общий день берём большее значение, счётчики только растут */
+  /* дневник активности: { "2026-09-12": {solved, stars, errs, hints, drills, fixed} }
+     — за общий день берём большее значение, счётчики только растут */
   function mergeStats(a, b) {
     a = (a && typeof a === "object") ? a : {};
     b = (b && typeof b === "object") ? b : {};
@@ -185,7 +185,7 @@
 
     Object.keys(days).forEach(function (d) {
       var x = a[d] || {}, y = b[d] || {}, r = {};
-      ["solved", "stars", "errs", "hints"].forEach(function (f) {
+      ["solved", "stars", "errs", "hints", "drills", "fixed"].forEach(function (f) {
         var v = Math.max(x[f] || 0, y[f] || 0);
         if (v) r[f] = v;
       });
@@ -215,6 +215,10 @@
 
     var stats = mergeStats(local["kombi-stats"], cloud["kombi-stats"]);
     if (Object.keys(stats).length) out["kombi-stats"] = stats;
+
+    /* заметки к позициям — объединяем, при совпадении ключа оставляем локальную */
+    var notes = Object.assign({}, cloud["kombi-notes"] || {}, local["kombi-notes"] || {});
+    if (Object.keys(notes).length) out["kombi-notes"] = notes;
 
     var ext = mergeExt(local["kombi-ext"], cloud["kombi-ext"]);
     if (Object.keys(ext.accounts).length || Object.keys(ext.days).length) out["kombi-ext"] = ext;

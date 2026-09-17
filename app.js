@@ -1854,12 +1854,18 @@ function renderTable(){
 }
 function renderMoves(){
   const g = rv.game, host = $$("rvMoves"), base = +(g.start.split(" ")[5] || 1);
+  /* Рядом с ходом — оценка после него, глазами белых, как на lichess.
+     Время на ход уходит в подсказку: две колонки цифр в узкой панели
+     читать невозможно. */
   const cell = k => {
     const m = moveAt(k), n = g.nodes[k], side = turnOf(g.nodes[k - 1].fen);
-    const clk = n.spent != null ? (n.spent >= 60 ? Math.round(n.spent / 60) + "м" : Math.round(n.spent) + "с") : "";
-    return `<button class="rvm" data-i="${k}">${icoHtml(m ? m.cat : "best", "sm")}` +
+    const clk = n.spent != null ? (n.spent >= 60 ? Math.round(n.spent / 60) + " мин" : Math.round(n.spent) + " сек") : "";
+    const ev = rv.evals[k] ? evalStr(rv.evals[k], n.fen, "w") : "";
+    const tip = [figurine(n.san, side), m ? CAT[m.cat].t : "", clk ? "время " + clk : ""]
+      .filter(Boolean).join(" · ");
+    return `<button class="rvm" data-i="${k}" title="${esc(tip)}">${icoHtml(m ? m.cat : "best", "sm")}` +
            `<span class="sn">${figurine(n.san, side)}</span>` +
-           (clk ? `<span class="cl">${clk}</span>` : "") + `</button>`;
+           (ev ? `<span class="cl">${esc(ev)}</span>` : "") + `</button>`;
   };
   const rows = [];
   let num = base, cur = null;
@@ -2369,14 +2375,22 @@ function drillOffer(){
   if (!n){ box.classList.add("gone"); return; }
 
   const who = side === "w" ? rv.game.white : rv.game.black;
+  const nPrev = drillList(side, "prevent").length;
+
   box.classList.remove("gone");
-  box.innerHTML = '<button type="button">⚑ Разобрать свои ошибки<span class="n"></span></button>' +
-                  '<p class="sub"></p>';
+  box.innerHTML =
+    '<button type="button" data-m="better">⚑ Разобрать свои ошибки<span class="n"></span></button>' +
+    '<p class="sub">Позиции, где ошибся ' + esc(who || (side === "w" ? "белый" : "чёрный")) +
+      '. Ищешь ход сильнее — движок молчит.</p>' +
+    (nPrev ? '<button type="button" class="alt" data-m="prevent">⛨ Профилактика<span class="n2"></span></button>' +
+             '<p class="sub">Другой вопрос: чем силён ответ соперника и как было ему помешать. ' +
+             'Способ из урока про профилактическое мышление.</p>' : "");
+
   box.querySelector(".n").textContent = n;
-  box.querySelector(".sub").textContent =
-    "Позиции, где ошибся " + (who ? who : side === "w" ? "белый" : "чёрный") +
-    ". Ход ищешь сам — движок молчит.";
-  box.querySelector("button").onclick = () => drillStart(side);
+  if (nPrev) box.querySelector(".n2").textContent = nPrev;
+  box.querySelectorAll("button").forEach(b => {
+    b.onclick = () => drillStart(side, b.dataset.m);
+  });
 }
 
 /* Порог взят у lichess: в retrospect/retroCtrl.ts ход принимается, если
@@ -2396,14 +2410,37 @@ function drillMySide(){
   return rv.flip ? "b" : "w";
 }
 
-function drillList(side){
-  return rv.moves.filter(m => m.side === side && BADCAT[m.cat] && !m.bookPly);
+/* mode "better"  — найди ход сильнее (как на lichess)
+   mode "prevent" — профилактика: помешать тому, что соперник сделал в ответ.
+                    Нужен его ответный ход, поэтому позиция должна иметь
+                    продолжение хотя бы на два полухода вперёд. */
+/* Отбор позиций. Наша шкала считает потерю шансов на победу, а в уроке
+   правило проще: «оценка упала больше, чем на полпешки». В близкой к
+   равной позиции эти правила почти совпадают, но не всегда — поэтому
+   берём объединение: наши неточности и ошибки плюс всё, что по уроку. */
+const LESSON_DROP = 50;      /* полпешки в сантипешках */
+const LESSON_CALM = 150;     /* правило урока осмысленно, пока позиция не разгромная */
+
+function lessonPick(m){
+  const e = rv.evals[m.k];
+  if (!e || e.kind === "mate") return false;
+  return m.cpLoss >= LESSON_DROP && Math.abs(e.val) <= LESSON_CALM;
 }
 
-function drillStart(side){
-  const list = drillList(side);
+function drillList(side, mode){
+  return rv.moves.filter(m => {
+    if (m.side !== side || m.bookPly) return false;
+    if (!BADCAT[m.cat] && !lessonPick(m)) return false;
+    if (mode === "prevent" && !rv.game.nodes[m.k + 2]) return false;
+    return true;
+  });
+}
+
+function drillStart(side, mode){
+  mode = mode || "better";
+  const list = drillList(side, mode);
   if (!list.length) return;
-  rv.drill = { side, list, i: 0, tries: 0, found: 0, shown: 0, skipped: 0,
+  rv.drill = { side, mode, list, i: 0, tries: 0, found: 0, shown: 0, skipped: 0,
                state: "ask", busy: false };
   rv.flip = side === "b";
   ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard","rvDrillCta"]
@@ -2415,6 +2452,7 @@ function drillStart(side){
 function drillStop(){
   rv.drill = null;
   rv.line = null;
+  const nb = $$("drNoteBox"); if (nb) nb.classList.add("gone");
   $$("rvDrillCard").classList.add("gone");
   ["rvSumCard","rvGraphCard","rvTabCard","rvKeyCard","rvMovesCard","rvVerdCard"]
     .forEach(id => $$(id).classList.remove("gone"));
@@ -2428,28 +2466,99 @@ const drillCur = () => rv.drill.list[rv.drill.i];
 
 function drillShow(){
   const d = rv.drill, m = drillCur();
-  d.state = "ask"; d.tries = 0; d.busy = false;
+  d.tries = 0; d.busy = false; d.atWorst = false;
   rv.line = null; rv.sel = null; rv.live = null; rv.livePvs = null;
   rwCancel();
-  rv.i = m.k;                         /* позиция перед твоим ходом */
   $$("rvVerdCard").classList.add("gone");      /* пока ищешь — без расчётов */
+
+  /* В профилактике сначала показываем, что случилось: твой ход и ответ
+     соперника. Оценку здесь не прячем — по уроку с неё и начинают. */
+  if (d.mode === "prevent"){
+    d.state = "show";
+    rv.i = m.k + 2;
+  } else {
+    d.state = "ask";
+    rv.i = m.k;
+  }
   renderBoard(); renderEval();
   drillPaint();
+}
+
+/* второй шаг профилактики: вернуться к своему ходу и думать без движка */
+function drillRewind(){
+  const d = rv.drill, m = drillCur();
+  d.state = "ask";
+  rv.line = null; rv.sel = null;
+  rv.i = m.k;
+  renderBoard(); renderEval();
+  drillPaint();
+}
+
+const drillReply = m => rv.game.nodes[m.k + 2];      /* ответ соперника в партии */
+
+/* Из урока: если сходу непонятно, чем плох свой ход, листаем дальше и
+   смотрим, где стало совсем скверно, — оттуда и видно причину. */
+function drillWorst(){
+  const d = rv.drill, m = drillCur(), g = rv.game;
+  if (d.atWorst){ d.atWorst = false; rv.i = m.k + 2; renderBoard(); renderEval(); drillPaint(); return; }
+
+  let worst = m.k + 2, wv = winFor(rv.evals[m.k + 2], g.nodes[m.k + 2].fen, m.side);
+  const end = Math.min(g.nodes.length - 1, m.k + 14);
+  for (let k = m.k + 3; k <= end; k++){
+    if (!rv.evals[k]) continue;
+    const w = winFor(rv.evals[k], g.nodes[k].fen, m.side);
+    if (w < wv){ wv = w; worst = k; }
+  }
+  d.atWorst = true; d.worstK = worst;
+  rv.i = worst; rv.line = null; rv.sel = null;
+  renderBoard(); renderEval(); drillPaint();
 }
 
 function drillPaint(say){
   const d = rv.drill, m = drillCur(), n = d.list.length;
   $$("drCount").textContent = (d.i + 1) + " / " + n;
   $$("drBar").style.width = (100 * d.i / n) + "%";
+  const t = $$("drTitle");
+  if (t) t.textContent = d.mode === "prevent" ? "Профилактика" : "Работа над ошибками";
 
   const num = Math.floor(m.k / 2) + 1;
   const who = m.side === "w" ? "белыми" : "чёрными";
-  $$("drAsk").innerHTML =
-    "Ход <b>" + num + "</b>, ты играл " + who + ". Найди ход сильнее — движок молчит." +
-    '<div class="dr-was"><i style="background:' + CAT[m.cat].c + '"></i>' +
+  const was = '<div class="dr-was"><i style="background:' + CAT[m.cat].c + '"></i>' +
     "в партии было " + esc(m.san) + " — " + CAT[m.cat].t.toLowerCase() + "</div>";
+
+  if (d.mode === "prevent"){
+    const rep = drillReply(m);
+    const repSan = figurine(rep.san, m.side === "w" ? "b" : "w");
+    const a = evalStr(rv.evals[m.k], rv.game.nodes[m.k].fen, "w");
+    const b = evalStr(rv.evals[m.k + 2], rep.fen, "w");
+    if (d.state === "show" && d.atWorst){
+      const k = d.worstK, n2 = rv.game.nodes[k];
+      const c = evalStr(rv.evals[k], n2.fen, "w");
+      const plies = k - (m.k + 2);
+      $$("drAsk").innerHTML =
+        "Вот чем это кончилось — через " + plies + " " +
+        (plies % 10 === 1 && plies % 100 !== 11 ? "полуход" : plies % 10 >= 2 && plies % 10 <= 4 && (plies % 100 < 10 || plies % 100 >= 20) ? "полухода" : "полуходов") +
+        " оценка просела до <b>" + esc(c) + "</b>." +
+        "<p>Пойми, что конкретно соперник выиграл — пешку, линию, темп. Потом возвращайся.</p>";
+    } else if (d.state === "show"){
+      $$("drAsk").innerHTML =
+        "Ход <b>" + num + "</b>. Ты сыграл " + esc(m.san) + ", соперник ответил <b>" +
+        esc(repSan) + "</b> — и это оказалось сильно." +
+        '<p class="dr-ev">Оценка: <b>' + esc(a) + "</b> → <b>" + esc(b) + "</b></p>" +
+        "<p>Посмотри на доску и пойми, чем хорош его ход. Не понятно — загляни, чем это кончилось.</p>";
+    } else {
+      $$("drAsk").innerHTML =
+        "Вернулись к твоему ходу " + num + ". Найди ход, который <b>и сам хорош</b>, " +
+        "и делает <b>" + esc(repSan) + "</b> невозможным или невыгодным." +
+        "<p>Движок молчит — думай сам, проверим после.</p>" + was;
+    }
+  } else {
+    $$("drAsk").innerHTML =
+      "Ход <b>" + num + "</b>, ты играл " + who + ". Найди ход сильнее — движок молчит." + was;
+  }
   $$("drSay").innerHTML = say || "";
   drillActs();
+  drillNoteBind();
 }
 
 function drillActs(){
@@ -2467,6 +2576,13 @@ function drillActs(){
     ? "Доска свободна: двигай фигуры и разбирай любые варианты, хоть вторую линию, хоть третью."
     : "";
   if (d.state === "done"){ add("Выйти", drillStop); return; }
+  if (d.state === "show"){
+    add("← К моему ходу", drillRewind, "go");
+    add(d.atWorst ? "← К ответу соперника" : "Чем это кончилось →", drillWorst);
+    add("Пропустить", drillSkip);
+    add("Выйти", drillStop);
+    return;
+  }
   if (d.state === "solved"){
     add(d.i + 1 < d.list.length ? "Дальше →" : "Итог", drillNext, "go");
     add("Линия движка", drillShowLine);
@@ -2494,6 +2610,8 @@ function drillAnswer(mv){
   }
 
   d.tries++;
+  if (d.mode === "prevent"){ drillPrevent(mv, san); return; }
+
   const best = m.best || "";
   if (best && uci.slice(0, 4) === best.slice(0, 4)){ drillWin(mv, san, 0, true); return; }
 
@@ -2516,6 +2634,89 @@ function drillAnswer(mv){
       else drillMiss(san, loss);
     });
   }).catch(() => { d.busy = false; });
+}
+
+/* Профилактика по методу из урока: ход соперника должен стать
+   невозможным или невыгодным, и при этом твой ход не должен портить
+   позицию. Две проверки считаем отдельно и обе показываем. */
+function drillPrevent(mv, san){
+  const d = rv.drill, m = drillCur();
+  const rep = drillReply(m), y = rep.uci;
+  const fenBefore = rv.game.nodes[m.k].fen;
+  const repSan = figurine(rep.san, m.side === "w" ? "b" : "w");
+
+  d.busy = true;
+  rv.sel = null; renderBoard();
+  $$("drSay").innerHTML = '<span class="dim"><i class="dr-spin"></i>Проверяю ' + esc(san) + '…</span>';
+
+  const wBefore = winFor(rv.evals[m.k], fenBefore, m.side);
+  const wGame = winFor(rv.evals[m.k + 2], rep.fen, m.side);   /* что вышло в партии */
+  const yMove = y && y.length >= 4 ? makeMove(mv.fen, y.slice(0, 2), y.slice(2, 4), y[4]) : null;
+
+  rwLoad().then(ok => {
+    if (!ok){ d.busy = false; $$("drSay").innerHTML = '<span class="dim">Движок не загрузился — нужен интернет.</span>'; return; }
+    /* 1. не портит ли позицию сам ход */
+    return rwGo(mv.fen, DRILL_DEPTH, 1, null, 6000).then(r1 => {
+      const e1 = (r1.pvs || [])[0];
+      const lossOwn = e1 ? Math.max(0, wBefore - winFor(e1, mv.fen, m.side)) : 0;
+      if (!yMove){                                   /* ход соперника стал невозможен */
+        d.busy = false;
+        drillPrevDone(mv, san, repSan, true, 0, lossOwn);
+        return;
+      }
+      /* 2. насколько его ход теперь хуже, чем был в партии */
+      return rwGo(yMove.fen, DRILL_DEPTH, 1, null, 6000).then(r2 => {
+        d.busy = false;
+        if (!rv.drill || drillCur() !== m) return;
+        const e2 = (r2.pvs || [])[0];
+        const wNow = e2 ? winFor(e2, yMove.fen, m.side) : wGame;
+        drillPrevDone(mv, san, repSan, false, wNow - wGame, lossOwn);
+      });
+    });
+  }).catch(() => { d.busy = false; });
+}
+
+/* Зачёт только при двух условиях сразу — так в уроке: «вроде бы и
+   улучшаться, и не потерять пешку». Одно помешать сопернику мало. */
+const PREV_GAIN = 4;      /* насколько ответ соперника должен просесть */
+const PREV_SPOIL = DRILL_OK;   /* твой ход должен быть хорош по той же мерке */
+
+function drillPrevDone(mv, san, repSan, impossible, gain, lossOwn){
+  const d = rv.drill;
+  const stopped = impossible || gain >= PREV_GAIN;
+  const sound = lossOwn < PREV_SPOIL;
+
+  const row = (ok, text) =>
+    '<div class="dr-chk ' + (ok ? "y" : "n") + '"><i>' + (ok ? "✓" : "✗") + "</i>" + text + "</div>";
+
+  const stopTxt = impossible
+    ? "Ход " + esc(repSan) + " теперь невозможен"
+    : stopped
+      ? "Ход " + esc(repSan) + " невыгоден: приносит на " + gain.toFixed(1) + " меньше, чем в партии"
+      : "Ход " + esc(repSan) + " работает по-прежнему";
+  const soundTxt = lossOwn < 1
+    ? "Твой ход ничего не теряет"
+    : sound
+      ? "Твой ход стоит " + lossOwn.toFixed(1) + " — в пределах нормы"
+      : "Твой ход теряет " + lossOwn.toFixed(1) + " — это уже ошибка";
+
+  const head = stopped && sound
+    ? '<span class="ok">' + esc(san) + " — то, что нужно.</span>"
+    : '<span class="no">' + esc(san) + " — ещё не то.</span>";
+
+  $$("drSay").innerHTML = head + row(stopped, stopTxt) + row(sound, soundTxt) +
+    (stopped && sound
+      ? (d.tries > 1 ? '<p class="dim">Попыток: ' + d.tries + ".</p>" : "")
+      : '<p class="dim">Нужны оба пункта сразу: помешать сопернику и не испортить себе. Попробуй ещё.</p>');
+
+  if (stopped && sound){
+    d.state = "solved";
+    if (d.tries <= 1) d.found++;
+    drillBump(d.tries <= 1 ? "fixed" : "drills");
+    $$("drBar").style.width = (100 * (d.i + 1) / d.list.length) + "%";
+    drillPlay(mv);
+  }
+  drillActs();
 }
 
 function drillWin(mv, san, loss, exact){
@@ -2597,6 +2798,36 @@ function drillFinish(){
   if (d.skipped) bits.push("пропущено " + d.skipped);
   $$("drSay").innerHTML = bits.length ? '<p class="dim">' + bits.join(", ") + '.</p>' : "";
   drillActs();
+}
+
+/* Тетрадка из урока: «в идеале такие моменты чуть ли не в тетрадку
+   конспектировать». Заметка привязана к партии и номеру хода, уезжает
+   в облако вместе с остальным и подставляется, когда вернёшься сюда. */
+function drillNoteKey(){
+  const m = drillCur();
+  return hash(rv.game.nodes.map(n => n.uci).join("")) + ":" + m.k;
+}
+function drillNotes(){
+  try { return JSON.parse(localStorage.getItem("kombi-notes") || "{}"); } catch(e){ return {}; }
+}
+let drNoteT = null;
+function drillNoteBind(){
+  const box = $$("drNoteBox"), ta = $$("drNote"), ok = $$("drNoteSaved");
+  if (!box || !ta) return;
+  if (!rv.drill || rv.drill.state === "done"){ box.classList.add("gone"); return; }
+  box.classList.remove("gone");
+  const key = drillNoteKey();
+  if (ta.dataset.k !== key){ ta.dataset.k = key; ta.value = drillNotes()[key] || ""; ok.textContent = ""; }
+  ta.oninput = () => {
+    clearTimeout(drNoteT);
+    drNoteT = setTimeout(() => {
+      const all = drillNotes(), v = ta.value.trim();
+      if (v) all[key] = v; else delete all[key];
+      try { localStorage.setItem("kombi-notes", JSON.stringify(all)); } catch(e){}
+      ok.textContent = v ? "сохранено" : "";
+      setTimeout(() => { if (ok.textContent === "сохранено") ok.textContent = ""; }, 1800);
+    }, 500);
+  };
 }
 
 /* в дневник активности — чтобы работа над ошибками была видна в статистике */

@@ -198,3 +198,34 @@
 
 .dr-hint{margin:10px 2px 0; font-size:11.5px; line-height:1.45; color:var(--ink-3)}
 .dr-hint:empty{display:none}
+
+/* вторая кнопка входа — профилактика */
+.rvcta button.alt{margin-top:12px; background:var(--surface-2); color:var(--ink);
+  border:1px solid var(--line)}
+.rvcta button.alt:hover{border-color:var(--accent); filter:none}
+.rvcta button.alt .n2{padding:1px 8px; border-radius:20px; font-size:12.5px;
+  background:var(--accent); color:var(--accent-ink)}
+
+/* строка с изменением оценки в профилактике */
+.dr-ev{margin:8px 0 0; font:400 13px/1.5 "JetBrains Mono",monospace; color:var(--ink-2)}
+.dr-ev b{color:var(--ink)}
+.dr-ask p{margin:7px 0 0}
+
+/* два условия зачёта в профилактике */
+.dr-chk{display:flex; gap:8px; align-items:flex-start; margin-top:7px;
+  font-size:12.5px; line-height:1.45; color:var(--ink-2)}
+.dr-chk i{flex:none; width:16px; height:16px; border-radius:50%; font-style:normal;
+  font-size:10px; line-height:16px; text-align:center; font-weight:700}
+.dr-chk.y i{background:var(--good-bg); color:var(--good); border:1px solid var(--good-line)}
+.dr-chk.n i{background:var(--bad-bg); color:var(--bad); border:1px solid var(--bad-line)}
+
+/* тетрадка из урока: короткий вывод к позиции */
+.dr-note{margin-top:13px; padding-top:13px; border-top:1px solid var(--line-2)}
+.dr-note label{display:block; font-size:11.5px; font-weight:600; color:var(--ink-2);
+  margin-bottom:6px}
+.dr-note textarea{width:100%; padding:9px 11px; font:inherit; font-size:13px;
+  line-height:1.5; color:var(--ink); background:var(--bg); border:1px solid var(--line);
+  border-radius:9px; resize:vertical}
+.dr-note textarea:focus{outline:none; border-color:var(--accent)}
+.dr-note .saved{display:block; margin-top:5px; font-size:11px; color:var(--good);
+  min-height:14px}
