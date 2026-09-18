@@ -54,6 +54,9 @@ for var, bid, title, lo, hi in BOOKS:
                "m": [[u, s, f] for u, s, f, _, _ in r["m"]]}
         if r.get("c"):                      # продолжение «для показа»
             rec["c"] = [[u, s, f] for u, s, f in r["c"]]
+        if r.get("a"):                      # второй равноценный ключевой ход
+            rec["a"] = [[u, s, f] for u, s, f, _, _ in r["a"]]
+            rec["ab"] = r["ab"]
         recs.append(rec)
     if not recs:
         raise SystemExit(f"сборник «{title}» пустой — заливать нечего "
@@ -89,6 +92,43 @@ old_cls = '"mv" + (i === st.an.i ? " cur" : "") + (n.book ? "" : " own");'
 new_cls = '"mv" + (i === st.an.i ? " cur" : "") + (n.book ? "" : " own") + (n.cont ? " cont" : "");'
 if old_cls not in src: raise SystemExit("anRender выглядит не так, как ожидалось — правка не применена")
 src = src.replace(old_cls, new_cls, 1)
+
+
+# --- правка страницы: два равноценных ключевых хода -----------------
+# У части задач на спасение движок не выделяет один ход: второй
+# отстаёт меньше чем на 0.30. Требовать конкретный ход там нечестно.
+# Поэтому сайт принимает любой из двух и ведёт тот вариант, который
+# сыграли, а после решения говорит, который сильнее.
+PATCHES = [
+ # активный вариант
+ ('const CHECK = ',
+  'const curLine = () => (st && st.alt && st.p && st.p.a) ? st.p.a : st.p.m;\nconst CHECK = '),
+ # приём хода: засчитываем и второй ключевой
+ ('  const need = st.p.m[st.step];\n  st.sel = null; st.hintSq = null;',
+  '  if (st.step === 0 && st.p.a && st.p.a[0][0].slice(0, 4) === from + to) st.alt = true;\n'
+  '  const need = curLine()[st.step];\n  st.sel = null; st.hintSq = null;'),
+ ('    const reply = st.p.m[st.step];', '    const reply = curLine()[st.step];'),
+ ('      if (!st.p.m[st.step]) finish();', '      if (!curLine()[st.step]) finish();'),
+ ('  st.hintSq = st.p.m[st.step][0].slice(0, 2);', '  st.hintSq = curLine()[st.step][0].slice(0, 2);'),
+ ('  const last = st.p.m[st.p.m.length - 1];', '  const last = curLine()[curLine().length - 1];'),
+ ('  st.step = st.p.m.length; st.done = true;', '  st.step = curLine().length; st.done = true;'),
+ ('  for (const mv of p.m){ nodes.push({ fen: mv[2], san: mv[1], uci: mv[0], book: true }); f = mv[2]; }',
+  '  for (const mv of curLine()){ nodes.push({ fen: mv[2], san: mv[1], uci: mv[0], book: true }); f = mv[2]; }'),
+ ('  st.an = { nodes, i: p.m.length };', '  st.an = { nodes, i: curLine().length };'),
+ ('  p.m.forEach(([uci, san], i) => {', '  curLine().forEach(([uci, san], i) => {'),
+ # после решения — какой ход был сильнее
+ # подпись про два равноценных хода не прячем разбором — иначе её
+ # видно полторы секунды и она пропадает
+ ('  $("pStateCard").classList.toggle("gone", on);',
+  '  $("pStateCard").classList.toggle("gone", on && !(st.p && st.p.ab));'),
+ ('              : (book.kind === "pos" ? "Основной вариант доигран до конца." : "Комбинация сыграна до конца."));\n  gauge();',
+  '              : (book.kind === "pos" ? "Основной вариант доигран до конца." : "Комбинация сыграна до конца."));\n'
+  '  if (st.p.ab) setState("good", "Задача решена", " " + st.p.ab[st.alt ? 1 : 0]);\n  gauge();'),
+]
+for old, new in PATCHES:
+    if old not in src:
+        raise SystemExit("не нашёл в app.js кусок, правка не применена:\n" + old[:90])
+    src = src.replace(old, new, 1)
 
 open(APP, "w", encoding="utf8").write(src)
 
