@@ -1,0 +1,7 @@
+{
+  "name": "chess-book-parser",
+  "version": "1.0.0",
+  "description": "Разбор шахматных книг из markdown в задачи с FEN и вариантами",
+  "private": true,
+  "dependencies": { "chess.js": "^1.0.0-beta.8" }
+}

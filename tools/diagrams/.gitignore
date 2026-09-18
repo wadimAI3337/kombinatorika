@@ -1,0 +1,7 @@
+# промежуточные файлы пайплайна, пересоздаются запуском
+*.npy
+sheet*.png
+positions.json
+keep.json
+__pycache__/
+solve.log
