@@ -1032,12 +1032,14 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
         <div class="oprow">
           <button class="ghost" id="opIOCopy">Скопировать</button>
           <button class="ghost" id="opIOSave">Сохранить файлом</button>
+          <button class="ghost" id="opIOFile">Взять из файла</button>
+          <input type="file" id="opIOFileInput" accept=".json,application/json,text/plain" style="display:none">
           <div class="sp"></div>
           <button class="rvgo" id="opIOApply">Загрузить</button>
           <button class="ghost" id="opIOClose">Закрыть</button>
         </div>
       </div>
-      <footer>Репертуар хранится в этом браузере. Экспорт — чтобы перенести на другой компьютер или сделать копию.</footer>
+      <footer id="opWhere"></footer>
     </div>
 
     <div id="opRep" class="gone">
@@ -1045,6 +1047,7 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
         <h1 id="opRepName"></h1><span class="sub" id="opRepSub"></span>
         <div class="spacer"></div>
         <button class="ghost" id="opRename">Переименовать</button>
+        <button class="ghost" id="opShare">Перенести</button>
         <button class="ghost" id="opDelete">Удалить дебют</button>
       </div>
       <div class="opstats" id="opStats"></div>
@@ -1082,6 +1085,16 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
           </select>
           <div class="sp"></div>
           <button class="ghost" id="opPgnClose">Закрыть</button>
+        </div>
+      </div>
+      <div class="opio gone" id="opShareBox">
+        <div class="opiolab" id="opShareLab"></div>
+        <textarea id="opShareText" spellcheck="false"></textarea>
+        <div class="oprow">
+          <button class="ghost" id="opShareCopy">Скопировать</button>
+          <button class="ghost" id="opShareSave">Сохранить файлом</button>
+          <div class="sp"></div>
+          <button class="ghost" id="opShareClose">Закрыть</button>
         </div>
       </div>
     </div>

@@ -3090,6 +3090,24 @@ function renderList(){
   add.textContent = "+ Новый дебют";
   add.onclick = newRep;
   host.appendChild(add);
+  whereStored();
+}
+
+/* Где на самом деле лежит репертуар. Без входа — только в этом
+   браузере, и это надо говорить прямо: данные так уже терялись
+   (Safari сам стирает хранилище сайта, если не заходить неделю). */
+function whereStored(){
+  const el = $$("opWhere"); if (!el) return;
+  let signed = false;
+  try { signed = !!(window.kombiSync && window.kombiSync.user && window.kombiSync.user()); } catch(e){}
+  el.innerHTML = signed
+    ? "Репертуар сохраняется в твой аккаунт и подтянется на других устройствах. " +
+      "«Перенести» на странице дебюта — если нужно отдать один дебют отдельно."
+    : '<b>Ты не вошёл — репертуар лежит только в этом браузере.</b> ' +
+      "Он пропадёт, если почистить данные сайта или зайти с другого устройства; " +
+      "Safari стирает такое хранилище сам, если не заходить неделю. " +
+      "Войди — и всё уедет в аккаунт, уже заведённое не потеряется. " +
+      "Либо сохрани копию: «Экспорт» здесь или «Перенести» на странице дебюта.";
 }
 const wordVar = n => (n % 10 === 1 && n % 100 !== 11) ? "вариант"
   : ([2,3,4].indexOf(n % 10) >= 0 && [12,13,14].indexOf(n % 100) < 0) ? "варианта" : "вариантов";
@@ -3113,6 +3131,7 @@ function newRepGo(){
 function openRep(r){
   op.rep = r;
   op.skipped = [];
+  $$("opShareBox").classList.add("gone");
   $$("opRepName").textContent = r.name;
   $$("opRepSub").textContent = (r.side === "w" ? "за белых" : "за чёрных");
   $$("opTarget").value = String(r.target || 3);
@@ -4212,12 +4231,22 @@ $$("opTExit").onclick = () => {
 };
 
 /* ---------- перенос репертуара ---------- */
+/* ---------- перенос ----------
+   Репертуар лежит в этом браузере, а в облако уезжает только когда
+   выполнен вход. Поэтому перенос нужен в двух видах: весь репертуар
+   разом (кнопки внизу списка) и один дебют отдельно — со страницы
+   самого дебюта. Формат один и тот же: массив дебютов в JSON, так что
+   импорт не различает, целиком выгрузка или один дебют. */
+function shareName(name){
+  const s = String(name || "дебют").replace(/[\\/:*?"<>|]+/g, "-").trim();
+  return (s || "дебют") + ".json";
+}
 function showIO(mode){
   $$("opIO").classList.remove("gone");
   $$("opIO").dataset.mode = mode;
   $$("opIOLab").textContent = mode === "out"
     ? "Весь репертуар одним текстом — сохрани файлом или скопируй себе."
-    : "Вставь сюда сохранённый ранее текст репертуара.";
+    : "Вставь сюда текст репертуара или возьми сохранённый файл.";
   $$("opIOApply").classList.toggle("gone", mode === "out");
   $$("opIOCopy").classList.toggle("gone", mode === "in");
   $$("opIOSave").classList.toggle("gone", mode === "in");
@@ -4242,6 +4271,47 @@ $$("opLoadText").addEventListener("keydown", e => {
 });
 $$("opExport").onclick = () => showIO("out");
 $$("opImport").onclick = () => showIO("in");
+$$("opIOFile").onclick = () => $$("opIOFileInput").click();
+$$("opIOFileInput").onchange = e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";                       /* чтобы тот же файл можно было выбрать снова */
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    showIO("in");
+    $$("opIOText").value = String(rd.result || "").trim();
+    toast("Файл прочитан — нажми «Загрузить».");
+  };
+  rd.onerror = () => toast("Не получилось прочитать файл.", 1);
+  rd.readAsText(f);
+};
+
+/* перенос одного дебюта — со страницы самого дебюта */
+$$("opShare").onclick = () => {
+  const r = op.rep; if (!r) return;
+  $$("opShareBox").classList.remove("gone");
+  $$("opShareLab").textContent =
+    "Дебют «" + r.name + "» одним текстом. Сохрани файлом или скопируй, " +
+    "а на другом устройстве загрузи через «Импорт» в списке дебютов.";
+  $$("opShareText").value = JSON.stringify([r]);
+  $$("opShareText").focus(); $$("opShareText").select();
+};
+$$("opShareClose").onclick = () => $$("opShareBox").classList.add("gone");
+$$("opShareCopy").onclick = () => {
+  $$("opShareText").select();
+  try { navigator.clipboard.writeText($$("opShareText").value); } catch(e){ try { document.execCommand("copy"); } catch(e2){} }
+  $$("opShareCopy").textContent = "Скопировано";
+  setTimeout(() => $$("opShareCopy").textContent = "Скопировать", 1500);
+};
+$$("opShareSave").onclick = () => {
+  try {
+    const blob = new Blob([$$("opShareText").value], { type:"application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = shareName(op.rep && op.rep.name);
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){ toast("Браузер не дал сохранить файл — скопируй текст вручную.", 1); }
+};
 $$("opIOClose").onclick = () => $$("opIO").classList.add("gone");
 $$("opIOCopy").onclick = () => {
   $$("opIOText").select();
@@ -4270,14 +4340,22 @@ $$("opIOApply").onclick = () => {
   }
   try { data = JSON.parse(raw); } catch(e){ toast("Это не похоже на сохранённый репертуар.", 1); return; }
   if (!Array.isArray(data)){ toast("Это не похоже на сохранённый репертуар.", 1); return; }
-  const add = reps.length ? confirm("Добавить к тому, что уже есть?\n\nОК — добавить, Отмена — заменить целиком") : true;
-  data.forEach(r => { r.id = r.id || uid(); r.lines = (r.lines || []).map(l => ({
+  /* Загрузка НИКОГДА не стирает то, что уже есть: раньше здесь стоял
+     confirm, и «Отмена» (или просто закрытый диалог) заменяла весь
+     репертуар целиком — потерять всё можно было одним промахом.
+     Теперь дебюты сливаются по id: свой же дебют, залитый второй раз,
+     обновляется, чужой добавляется рядом. */
+  data.forEach(r => { r.id = r.id || uid(); r.lines = (r.lines || []).map(l => Object.assign({}, l, {
     id: l.id || uid(), name: l.name || "Вариант", sans: l.sans || [],
     st: l.st || { reps:0, runs:0, errs:0, due:0, step:0, last:0 } })); });
-  reps = add ? reps.concat(data) : data;
+  let fresh = 0, upd = 0;
+  data.forEach(r => {
+    const i = reps.findIndex(x => x.id === r.id);
+    if (i < 0){ reps.push(r); fresh++; } else { reps[i] = r; upd++; }
+  });
   saveReps(); loadReps(); renderList();
   $$("opIO").classList.add("gone");
-  toast("Загружено дебютов: " + data.length);
+  toast("Добавлено: " + fresh + (upd ? ", обновлено: " + upd : ""));
 };
 
 document.addEventListener("keydown", e => {
