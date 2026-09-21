@@ -17,13 +17,15 @@
   /* ---------- что синхронизируем ---------- */
   /* kombi         — прогресс по задачам (звёзды, решено, подсказки)
      kombi-op      — дебютный репертуар и интервальное повторение
+     kombi-opf     — список папок, в которые разложены дебюты
      kombi-theme   — тема оформления
      kombi-autoan  — автоматический разбор после решения
      kombi-rv-*    — НЕ синхронизируем: это локальный кэш работы движка */
   /* kombi-stats    — сколько решено и заработано звёзд по дням
      kombi-ext      — ники на lichess/chess.com и ежедневные снимки рейтинга */
-  var KEYS = ["kombi", "kombi-op", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext", "kombi-notes"];
-  var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-stats": true, "kombi-ext": true, "kombi-notes": true };
+  var KEYS = ["kombi", "kombi-op", "kombi-opf", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext", "kombi-notes"];
+  var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-opf": true, "kombi-stats": true,
+                    "kombi-ext": true, "kombi-notes": true };
   var SYNCED = {}; KEYS.forEach(function (k) { SYNCED[k] = true; });
 
   var SB_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
@@ -212,6 +214,14 @@
 
     var reps = mergeReps(local["kombi-op"], cloud["kombi-op"]);
     if (reps.length) out["kombi-op"] = reps;
+
+    /* папки дебютов — просто список имён, объединяем без потерь */
+    var folds = [];
+    [].concat(local["kombi-opf"] || [], cloud["kombi-opf"] || []).forEach(function (n) {
+      n = String(n || "").trim();
+      if (n && folds.indexOf(n) < 0) folds.push(n);
+    });
+    if (folds.length) out["kombi-opf"] = folds;
 
     var stats = mergeStats(local["kombi-stats"], cloud["kombi-stats"]);
     if (Object.keys(stats).length) out["kombi-stats"] = stats;

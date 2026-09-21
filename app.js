@@ -2891,6 +2891,9 @@ const START0 = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const DAY = 86400000;
 const IVL = [1, 3, 7, 16, 35, 70, 140];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+/* esc хватает для текста, но не для атрибута: кавычка в комментарии
+   или в названии папки разорвала бы тег */
+const escA = t => esc(String(t == null ? "" : t)).replace(/"/g, "&quot;");
 const clamp2 = (v, a, b) => v < a ? a : v > b ? b : v;
 
 const LS = { get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : v; } catch(e){ return d; } },
@@ -2902,10 +2905,69 @@ function loadReps(){
   try { reps = JSON.parse(localStorage.getItem("kombi-op") || "[]"); } catch(e){ reps = []; }
   if (!Array.isArray(reps)) reps = [];
   reps.forEach(r => { r.lines = r.lines || []; r.target = r.target || 3; r.cards = r.cards || {};
+    r.folder = typeof r.folder === "string" ? r.folder.trim() : "";
     r.lines.forEach(l => { l.st = l.st || { reps:0, runs:0, errs:0, due:0, step:0, last:0 };
-      l.start = l.start || START0; l.group = l.group || ""; }); });
+      l.start = l.start || START0; l.group = l.group || "";
+      l.notes = (l.notes && typeof l.notes === "object") ? l.notes : {};
+      l.glyphs = (l.glyphs && typeof l.glyphs === "object") ? l.glyphs : {}; }); });
 }
 function saveReps(){ try { localStorage.setItem("kombi-op", JSON.stringify(reps)); } catch(e){} }
+
+/* ---------- папки: уровень над дебютами ----------
+   Дебют помнит имя своей папки, отдельно храним список папок — иначе
+   пустая папка, только что заведённая, пропадала бы до первого дебюта. */
+function foldNames(){
+  let known = [];
+  try { known = JSON.parse(localStorage.getItem("kombi-opf") || "[]"); } catch(e){ known = []; }
+  if (!Array.isArray(known)) known = [];
+  const out = [];
+  known.forEach(n => { n = String(n || "").trim(); if (n && out.indexOf(n) < 0) out.push(n); });
+  reps.forEach(r => { const f = (r.folder || "").trim(); if (f && out.indexOf(f) < 0) out.push(f); });
+  return out;
+}
+function saveFolds(list){
+  try { localStorage.setItem("kombi-opf", JSON.stringify(list)); } catch(e){}
+}
+function addFold(name){
+  name = String(name || "").trim();
+  if (!name) return "";
+  const list = foldNames();
+  if (list.indexOf(name) < 0){ list.push(name); saveFolds(list); }
+  return name;
+}
+function dropFold(name){
+  saveFolds(foldNames().filter(n => n !== name));
+}
+function renameFold(from, to){
+  to = String(to || "").trim();
+  if (!to || to === from) return;
+  const list = foldNames().map(n => n === from ? to : n);
+  saveFolds(list.filter((n, i) => list.indexOf(n) === i));
+  reps.forEach(r => { if ((r.folder || "") === from) r.folder = to; });
+  saveReps();
+}
+/* какие папки открыты — просто удобство, живёт в этом браузере */
+function foldShut(){
+  try { const v = JSON.parse(localStorage.getItem("kombi-opf-shut") || "{}"); return v && typeof v === "object" ? v : {}; }
+  catch(e){ return {}; }
+}
+function toggleFold(name){
+  const m = foldShut();
+  if (m[name]) delete m[name]; else m[name] = 1;
+  try { localStorage.setItem("kombi-opf-shut", JSON.stringify(m)); } catch(e){}
+}
+function fillFoldList(){
+  const dl = $$("opFolders");
+  if (dl) dl.innerHTML = foldNames().map(n => `<option value="${escA(n)}"></option>`).join("");
+}
+function fillGroupList(){
+  const dl = $$("opGroups");
+  if (!dl) return;
+  const names = [];
+  (op.rep ? op.rep.lines : []).forEach(l => { const g = (l.group || "").trim();
+    if (g && names.indexOf(g) < 0) names.push(g); });
+  dl.innerHTML = names.map(n => `<option value="${escA(n)}"></option>`).join("");
+}
 const repById = id => reps.find(r => r.id === id);
 const lineById = (r, id) => r.lines.find(l => l.id === id);
 
@@ -3018,12 +3080,36 @@ function repStats(r){
 
 /* ---------- PGN с вариантами -> список линий ---------- */
 const SANRE = /^(?:O-O-O|O-O|0-0-0|0-0|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)[+#]?[!?]{0,2}$/;
+/* NAG -> знак, который пишут рядом с ходом: lichess отдаёт их числами */
+const NAGS = { 1:"!", 2:"?", 3:"!!", 4:"??", 5:"!?", 6:"?!", 7:"□", 10:"=", 13:"∞", 14:"⩲", 15:"⩱",
+               16:"±", 17:"∓", 18:"+−", 19:"−+", 22:"⨀", 23:"⨀", 32:"⟳", 36:"↑", 40:"→", 132:"⇆", 146:"N" };
+/* текст комментария: выкидываем служебные вставки lichess ([%clk], [%cal] и прочее) */
+function cleanNote(t){
+  return String(t || "").replace(/^\{|\}$/g, "").replace(/\[%[^\]]*\]/g, " ")
+    .replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+}
+/* PGN с вариантами -> линии. Каждая линия несёт свои комментарии и знаки,
+   привязанные к номеру полухода: notes[k] — комментарий к ходу sans[k],
+   notes["-1"] — то, что написано до первого хода (вступление главы). */
 function pgnLines(text, start){
-  let body = text.replace(/^\s*\[[^\]]*\]\s*$/gm, " ").replace(/\$\d+/g, " ").replace(/;[^\n]*/g, " ");
+  let body = text.replace(/^\s*\[[^\]]*\]\s*$/gm, " ").replace(/;[^\n]*/g, " ");
   const toks = body.match(/\(|\)|\{[^}]*\}|[^\s(){}]+/g) || [];
   const out = [];
   let path = [];
   const stack = [];
+  const cmt = {}, nag = {};           /* ключ — путь ходов от начала, то есть узел дерева */
+  const at = () => path.join(" ");
+  const addNote = (key, t) => {
+    const v = cleanNote(t);
+    if (!v) return;
+    cmt[key] = cmt[key] ? cmt[key] + "\n" + v : v;
+  };
+  const addNag = (key, n) => {
+    const g = NAGS[n];
+    if (!g || !key) return;
+    if (!nag[key]) nag[key] = g;
+    else if (nag[key].indexOf(g) < 0) nag[key] += " " + g;
+  };
   /* номер хода -> индекс полухода, с учётом того, с какой позиции начинается линия */
   const p0 = (start || START0).split(" ");
   const bn = +(p0[5] || 1), off = (p0[1] || "w") === "w" ? 0 : 1;
@@ -3038,7 +3124,8 @@ function pgnLines(text, start){
   for (const t of toks){
     if (t === "("){ stack.push(path.slice()); path = path.slice(0, -1); waitNum = true; continue; }
     if (t === ")"){ if (path.length) out.push(path.slice()); path = stack.pop() || []; waitNum = false; continue; }
-    if (t[0] === "{") continue;
+    if (t[0] === "{"){ addNote(at(), t); continue; }
+    if (t[0] === "$"){ addNag(at(), +t.slice(1)); continue; }
     const only = t.match(/^(\d+)\.(\.\.)?$/);
     if (only){ if (waitNum){ cutTo(+only[1], !!only[2]); waitNum = false; } continue; }
     if (/^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)) continue;
@@ -3046,15 +3133,34 @@ function pgnLines(text, start){
     let s = t;
     if (pre){ s = pre[3]; if (waitNum) cutTo(+pre[1], !!pre[2]); }
     waitNum = false;
+    const mark = (s.match(/[!?]+$/) || [""])[0];
     s = s.replace(/[!?]+$/, "");
-    if (SANRE.test(s)) path.push(s);
+    if (SANRE.test(s)){
+      path.push(s);
+      if (mark) nag[at()] = mark;
+    }
   }
   if (path.length) out.push(path);
   /* выкидываем пути, которые целиком лежат внутри других */
   const keys = out.map(p => p.join(" "));
   const keep = out.filter((p, i) => !keys.some((k, j) => j !== i && (k === keys[i] ? j < i : k.indexOf(keys[i] + " ") === 0)));
-  return keep.filter(p => nodesOf(p, start).length === p.length + 1);
+  /* комментарий лежит на узле дерева, а значит достаётся всем линиям,
+     которые через этот узел проходят — ровно на том же ходу */
+  return keep.filter(p => nodesOf(p, start).length === p.length + 1).map(p => {
+    const notes = {}, glyphs = {};
+    if (cmt[""]) notes["-1"] = cmt[""];
+    for (let k = 0; k < p.length; k++){
+      const key = p.slice(0, k + 1).join(" ");
+      if (cmt[key]) notes[k] = cmt[key];
+      if (nag[key]) glyphs[k] = nag[key];
+    }
+    return { sans: p, notes, glyphs };
+  });
 }
+/* комментарий к позиции, в которую пришли после i ходов */
+function noteAt(l, i){ return (l && l.notes && l.notes[i - 1]) || ""; }
+function glyphAt(l, k){ return (l && l.glyphs && l.glyphs[k]) || ""; }
+const noteCount = l => l && l.notes ? Object.keys(l.notes).length : 0;
 
 /* ---------- экраны ---------- */
 const op = { view:"list", rep:null, edit:null, train:null, flip:false, sel:null };
@@ -3063,34 +3169,104 @@ function opShow(v){
   ["opList","opRep","opEdit","opTrain"].forEach(id => $$(id).classList.toggle("gone", id !== "op" + v[0].toUpperCase() + v.slice(1)));
   const hasRep = !!op.rep && v !== "list";
   document.querySelectorAll(".opc").forEach(e => e.classList.toggle("gone", !hasRep));
-  $$("opCrumbRep").textContent = op.rep ? op.rep.name : "";
+  $$("opCrumbRep").textContent = op.rep ? ((op.rep.folder ? op.rep.folder + " / " : "") + op.rep.name) : "";
   window.scrollTo(0, 0);
 }
 function openOpenings(){ show("open"); loadReps(); renderList(); opShow("list"); }
 window.openOpenings = openOpenings;
 
 /* ---------- список дебютов ---------- */
+function repCard(r){
+  const s = repStats(r);
+  const b = document.createElement("button");
+  b.className = "opcard";
+  b.innerHTML = `<div class="top"><span class="opside ${r.side}"></span><h3>${esc(r.name)}</h3></div>
+    <div class="meta">${s.total} ${wordVar(s.total)} · за ${r.side === "w" ? "белых" : "чёрных"} · ${r.target} повторения</div>
+    <div class="bar"><i style="width:${s.total ? 100 * s.learned / s.total : 0}%"></i></div>
+    <div class="meta">выучено ${s.learned} из ${s.total}</div>
+    ${s.due ? `<div class="due">к тренировке: ${s.due}</div>` : `<div class="meta">всё повторено</div>`}`;
+  b.onclick = () => openRep(r);
+  return b;
+}
+function addCard(text, fn){
+  const add = document.createElement("button");
+  add.className = "opcard add";
+  add.textContent = text;
+  add.onclick = fn;
+  return add;
+}
 function renderList(){
   const host = $$("opCards");
   host.innerHTML = "";
-  reps.forEach(r => {
-    const s = repStats(r);
-    const b = document.createElement("button");
-    b.className = "opcard";
-    b.innerHTML = `<div class="top"><span class="opside ${r.side}"></span><h3>${esc(r.name)}</h3></div>
-      <div class="meta">${s.total} ${wordVar(s.total)} · за ${r.side === "w" ? "белых" : "чёрных"} · ${r.target} повторения</div>
-      <div class="bar"><i style="width:${s.total ? 100 * s.learned / s.total : 0}%"></i></div>
-      <div class="meta">выучено ${s.learned} из ${s.total}</div>
-      ${s.due ? `<div class="due">к тренировке: ${s.due}</div>` : `<div class="meta">всё повторено</div>`}`;
-    b.onclick = () => openRep(r);
-    host.appendChild(b);
+  fillFoldList();
+  const folds = foldNames(), shut = foldShut();
+
+  folds.forEach(name => {
+    const mine = reps.filter(r => (r.folder || "") === name);
+    const due = mine.reduce((a, r) => a + repStats(r).due, 0);
+    const box = document.createElement("div");
+    box.className = "opfold" + (shut[name] ? " shut" : "");
+    const head = document.createElement("div");
+    head.className = "opfoldhead" + (shut[name] ? " shut" : "");
+    head.innerHTML = `<button class="nm"><span class="tw">▾</span>${esc(name)}</button>` +
+      `<span class="cnt">${mine.length} ${wordRep(mine.length)}` +
+      (due ? ` · к тренировке: ${due}` : "") + `</span><span class="sp"></span>` +
+      `<button class="act" data-ftrain="1">Тренировать папку</button>` +
+      `<button class="act" data-fren="1">Переименовать</button>` +
+      `<button class="act" data-fdel="1">Убрать папку</button>`;
+    head.querySelector(".nm").onclick = () => { toggleFold(name); renderList(); };
+    head.querySelector("[data-ftrain]").onclick = () => trainFolder(name);
+    head.querySelector("[data-fren]").onclick = () => {
+      const n = prompt("Новое название папки", name);
+      if (n && n.trim()){ renameFold(name, n.trim()); renderList(); toast("Папка переименована"); }
+    };
+    head.querySelector("[data-fdel]").onclick = () => {
+      const keep = mine.map(r => r.id);
+      dropFold(name);
+      reps.forEach(r => { if ((r.folder || "") === name) r.folder = ""; });
+      saveReps(); renderList();
+      toast("Папка «" + name + "» убрана, дебюты остались", false, { t:"вернуть", f:() => {
+        addFold(name);
+        reps.forEach(r => { if (keep.indexOf(r.id) >= 0) r.folder = name; });
+        saveReps(); renderList(); } });
+    };
+    box.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "opgrid";
+    mine.forEach(r => grid.appendChild(repCard(r)));
+    grid.appendChild(addCard("+ Дебют в эту папку", () => newRep(name)));
+    box.appendChild(grid);
+    host.appendChild(box);
   });
-  const add = document.createElement("button");
-  add.className = "opcard add";
-  add.textContent = "+ Новый дебют";
-  add.onclick = newRep;
-  host.appendChild(add);
+
+  const loose = reps.filter(r => !(r.folder || ""));
+  const box = document.createElement("div");
+  box.className = "opfold";
+  if (folds.length){
+    const head = document.createElement("div");
+    head.className = "opfoldhead";
+    head.innerHTML = `<b class="nm" style="cursor:default">Без папки</b>` +
+      `<span class="cnt">${loose.length} ${wordRep(loose.length)}</span>`;
+    box.appendChild(head);
+  }
+  const grid = document.createElement("div");
+  grid.className = "opgrid";
+  loose.forEach(r => grid.appendChild(repCard(r)));
+  grid.appendChild(addCard("+ Новый дебют", () => newRep("")));
+  box.appendChild(grid);
+  host.appendChild(box);
   whereStored();
+}
+const wordRep = n => (n % 10 === 1 && n % 100 !== 11) ? "дебют"
+  : ([2,3,4].indexOf(n % 10) >= 0 && [12,13,14].indexOf(n % 100) < 0) ? "дебюта" : "дебютов";
+/* «тренировать папку» — всё, что пора, по всем дебютам внутри неё */
+function trainFolder(name){
+  const items = [];
+  reps.forEach(r => { if ((r.folder || "") !== name) return;
+    r.lines.forEach(l => { if (isDue(r, l)) items.push({ rep:r, line:l }); }); });
+  if (!items.length){ toast("В этой папке повторять нечего — всё свежее.", 1); return; }
+  op.rep = null;
+  startTrainLines(items, name);
 }
 
 /* Где на самом деле лежит репертуар. Без входа — только в этом
@@ -3113,33 +3289,50 @@ const wordVar = n => (n % 10 === 1 && n % 100 !== 11) ? "вариант"
   : ([2,3,4].indexOf(n % 10) >= 0 && [12,13,14].indexOf(n % 100) < 0) ? "варианта" : "вариантов";
 
 let newSide = "w";
-function newRep(){
+function newRep(folder){
+  fillFoldList();
   $$("opNewBox").classList.remove("gone");
   $$("opNewName").value = "";
+  $$("opNewFolder").value = typeof folder === "string" ? folder : "";
   $$("opNewName").focus();
+  $$("opNewBox").scrollIntoView({ block:"nearest" });
 }
 function newRepGo(){
   const name = $$("opNewName").value.trim();
   if (!name){ $$("opNewName").focus(); return; }
-  const r = { id:uid(), name, side:newSide, target:+$$("opNewTarget").value || 3, made:Date.now(), lines:[] };
+  const folder = addFold($$("opNewFolder").value);
+  const r = { id:uid(), name, side:newSide, folder, target:+$$("opNewTarget").value || 3,
+              made:Date.now(), lines:[] };
   reps.push(r); saveReps();
   $$("opNewBox").classList.add("gone");
   renderList(); openRep(r);
+}
+/* завести пустую папку — дебюты в неё сложим потом */
+function newFolder(){
+  const n = prompt("Название папки — например «Французская защита»", "");
+  if (!n || !n.trim()) return;
+  addFold(n.trim());
+  renderList();
+  toast("Папка «" + n.trim() + "» готова");
 }
 
 /* ---------- дебют ---------- */
 function openRep(r){
   op.rep = r;
   op.skipped = [];
-  $$("opShareBox").classList.add("gone");
+  ["opShareBox", "opFoldBox", "opGroupBox", "opPgnBox"].forEach(id => $$(id).classList.add("gone"));
   $$("opRepName").textContent = r.name;
-  $$("opRepSub").textContent = (r.side === "w" ? "за белых" : "за чёрных");
+  $$("opRepSub").textContent = (r.side === "w" ? "за белых" : "за чёрных") +
+    (r.folder ? " · папка «" + r.folder + "»" : "");
   $$("opTarget").value = String(r.target || 3);
+  fillFoldList();
+  fillGroupList();
   renderRep();
   opShow("rep");
 }
 function renderRep(){
   const r = op.rep, s = repStats(r), ms = moveStats(r);
+  fillGroupList();
   renderSkip();
   if (op.treeView){ renderTree(); }
   $$("opTree").classList.toggle("gone", !op.treeView);
@@ -3154,7 +3347,9 @@ function renderRep(){
   const host = $$("opLines");
   host.innerHTML = "";
   if (!r.lines.length){
-    host.innerHTML = '<p class="rvhint">Пока пусто. Нажми «Добавить вариант» — построишь линию на доске или вставишь PGN.</p>';
+    host.innerHTML = '<p class="rvhint">Пока пусто. «Добавить вариант» — построишь линию на доске, ' +
+      '«Новая группа» — заведёшь раздел внутри дебюта, «Загрузить: lichess / PGN» — заберёшь готовый study ' +
+      'вместе с комментариями к ходам.</p>';
     return;
   }
   r.lines.forEach(l => {
@@ -3163,7 +3358,9 @@ function renderRep(){
     el.className = "opline " + (state.k === "ok" ? "ok" : state.k === "due" ? "due" : "");
     let dots = "";
     for (let i = 0; i < t; i++) dots += `<i class="${i < st.reps ? "on" : ""}"></i>`;
-    el.innerHTML = `<div class="lb"><div class="nm">${esc(l.name)}</div>
+    const nb = noteCount(l);
+    el.innerHTML = `<div class="lb"><div class="nm">${l.group ? `<span class="opgrp">${esc(l.group)}</span>` : ""}${esc(l.name)}` +
+        (nb ? ` <span class="opnb" title="комментариев к ходам">✎ ${nb}</span>` : "") + `</div>
         <span class="mv">${sanLine(l.sans, 12, lineStart(l))}</span></div>
       <div class="opdots">${dots}</div>
       ${l.ev == null ? "" : `<span class="opev ${l.ev < thresh() ? "bad" : l.ev >= -40 ? "ok" : ""}">${evTxt(l.ev)}</span>`}
@@ -3178,7 +3375,7 @@ function renderRep(){
       const a = b.dataset.a;
       if (a === "train") startTrain(r, "one", l.id);
       if (a === "edit") openEdit(r, l);
-      if (a === "fork") openEdit(r, null, l.sans.slice());
+      if (a === "fork") openEdit(r, null, l.sans.slice(), lineStart(l), l.group || "", l);
       if (a === "del") delLine(r, l);
     });
     host.appendChild(el);
@@ -3265,12 +3462,14 @@ function groupsOf(r){
   return out;
 }
 function buildTree(lines){
-  const root = { san:"", kids:[], leaf:null };
+  const root = { san:"", kids:[], leaf:null, note:"", gl:"" };
   lines.forEach(l => {
     let cur = root;
-    l.sans.forEach(s => {
+    l.sans.forEach((s, i) => {
       let k = cur.kids.find(x => x.san === s);
-      if (!k) cur.kids.push(k = { san:s, kids:[], leaf:null });
+      if (!k) cur.kids.push(k = { san:s, kids:[], leaf:null, note:"", gl:"" });
+      if (!k.note && l.notes && l.notes[i]) k.note = l.notes[i];
+      if (!k.gl && l.glyphs && l.glyphs[i]) k.gl = l.glyphs[i];
       cur = k;
     });
     cur.leaf = l;
@@ -3298,8 +3497,11 @@ function renderBranch(node, path, g, depth, frag){
     if (cur.san){
       const m = plyMeta(g.start, p.length - 1);
       const lab = (m.side === "w" ? m.num + "." : (p.length === 1 || html.length === 0 ? m.num + "…" : ""));
-      html.push(`<button class="tmv ${m.side === r.side ? "mine" : ""}" data-p="${esc(p.join(" "))}" data-s="${esc(g.key)}">` +
-                lab + figurine(cur.san, m.side) + "</button>");
+      html.push(`<button class="tmv ${m.side === r.side ? "mine" : ""}${cur.note ? " note" : ""}"` +
+                (cur.note ? ` title="${escA(cur.note)}"` : "") +
+                ` data-p="${esc(p.join(" "))}" data-s="${esc(g.key)}">` +
+                lab + figurine(cur.san, m.side) +
+                (cur.gl ? `<span class="opgl">${esc(cur.gl)}</span>` : "") + "</button>");
     }
     if (cur.kids.length === 1 && !cur.leaf){ cur = cur.kids[0]; p.push(cur.san); continue; }
     break;
@@ -3328,7 +3530,8 @@ function renderTree(){
     head.innerHTML = `<b>${esc(title)}</b><span>${g.lines.length} ${wordVar(g.lines.length)}` +
       (g.start !== START0 ? " · с позиции" : "") + `</span><span class="sp"></span>` +
       `<button data-gtrain="${esc(g.key)}">Тренировать ветку</button>` +
-      `<button data-gadd="${esc(g.key)}">+ вариант</button>` +
+      `<button data-gadd="${esc(g.key)}">+ подвариант</button>` +
+      `<button data-gren="${esc(g.key)}">переименовать</button>` +
       `<button data-gdel="${esc(g.key)}" title="Удалить всю группу">✕</button>`;
     box.appendChild(head);
     const frag = document.createDocumentFragment();
@@ -3342,8 +3545,9 @@ function openEditAt(g, path){
   const key = path.join(" ");
   const l = op.rep.lines.find(x => lineStart(x) === g.start && (x.group || "") === g.name &&
     x.sans.slice(0, path.length).join(" ") === key);
-  openEdit(op.rep, l || null, l ? null : path, g.start);
+  openEdit(op.rep, l || null, l ? null : path, g.start, g.name, l);
   op.edit.group = g.name;
+  $$("opEGroup").value = g.name;
   op.edit.i = Math.min(path.length, op.edit.sans.length);
   renderEdit();
 }
@@ -3427,10 +3631,15 @@ function bindBoardClicks(hostId, handler){
 }
 
 /* ---------- редактор варианта ---------- */
-function openEdit(rep, line, prefill, start){
+function openEdit(rep, line, prefill, start, group, seed){
   op.rep = rep;
+  const src = line || seed || null;
   op.edit = { lineId: line ? line.id : null, sans: line ? line.sans.slice() : (prefill || []),
-              i: 0, eng:false, start: line ? lineStart(line) : (start || START0) };
+              i: 0, eng:false, start: line ? lineStart(line) : (start || START0),
+              group: line ? (line.group || "") : (typeof group === "string" ? group : ""),
+              notes: Object.assign({}, (src && src.notes) || {}),
+              glyphs: Object.assign({}, (src && src.glyphs) || {}),
+              touched: {}, noteAt: null };
   op.edit.i = op.edit.sans.length;
   op.edit.eng = LS.get("kombi-op-eng", "0") === "1";
   $$("opEEngine").classList.toggle("on", op.edit.eng);
@@ -3439,6 +3648,8 @@ function openEdit(rep, line, prefill, start){
   op.sel = null;
   $$("opELab").textContent = line ? "Правка варианта" : (prefill && prefill.length ? "Новая ветка" : "Новый вариант");
   $$("opEName").value = line ? line.name : "";
+  $$("opEGroup").value = op.edit.group;
+  fillGroupList();
   $$("opEPasteBox").classList.add("gone");
   $$("opEEval").classList.toggle("gone", !op.edit.eng);
   renderEdit();
@@ -3461,9 +3672,11 @@ function renderEdit(){
       `<span class="num">${m.num}${m.side === "w" ? "." : "…"}</span>`);
     const b = document.createElement("button");
     const isMine = m.side === op.rep.side;
-    b.className = (k + 1 === op.edit.i ? "cur " : "") + (isMine ? "mine" : "");
-    b.textContent = figurine(s, m.side);
-    b.onclick = () => { op.edit.i = k + 1; op.sel = null; renderEdit(); };
+    b.className = (k + 1 === op.edit.i ? "cur " : "") + (isMine ? "mine " : "") +
+                  (op.edit.notes[k] ? "note" : "");
+    b.textContent = figurine(s, m.side) + (op.edit.glyphs[k] || "");
+    if (op.edit.notes[k]) b.title = op.edit.notes[k];
+    b.onclick = () => editGo(k + 1);
     host.appendChild(b);
   });
   /* что уже есть в репертуаре из этой позиции */
@@ -3484,7 +3697,71 @@ function renderEdit(){
     note.innerHTML = "Ответвление от «" + esc(fk.line.name) + "» на " +
       plyMeta(op.edit.start, fk.k).num + "-м ходу — сохраняй как новую ветку.";
   } else note.classList.add("gone");
+  renderNote();
   if (op.edit.eng) editEval(n.fen);
+}
+
+/* ---------- комментарии к ходам ----------
+   Комментарий привязан к ходу: notes[k] — мысль к ходу sans[k],
+   notes["-1"] — то, что написано до первого хода. Ровно так же они
+   приезжают из study, поэтому текст всегда стоит там же, где на lichess. */
+const noteKey = () => op.edit.i - 1;
+function renderNote(){
+  const k = noteKey(), e = op.edit;
+  const who = $$("opENoteWho");
+  if (k < 0) who.innerHTML = "К <b>начальной позиции</b> варианта — вступление ко всей линии.";
+  else {
+    const m = plyMeta(e.start, k);
+    who.innerHTML = "К ходу <b>" + m.num + (m.side === "w" ? ". " : "… ") +
+      esc(figurine(e.sans[k], m.side)) + (e.glyphs[k] ? " " + esc(e.glyphs[k]) : "") + "</b>" +
+      (m.side === op.rep.side ? " — твой ход." : " — ход соперника.");
+  }
+  $$("opENote").value = e.notes[k] || "";
+  e.noteAt = k;
+}
+/* дописанный текст не должен пропасть от клика по другому ходу */
+function flushNote(){
+  const e = op.edit;
+  if (!e || e.noteAt === null || e.noteAt === undefined) return;
+  const box = $$("opENote");
+  if (!box) return;
+  const v = box.value.trim(), k = e.noteAt;
+  if (v === (e.notes[k] || "")) return;
+  if (v) e.notes[k] = v; else delete e.notes[k];
+  e.touched[k] = 1;
+}
+/* На lichess комментарий висит на ходу, а не на линии: раз уж две ветки
+   идут через один и тот же ход, текст у них общий. Поэтому правку
+   разносим по всем вариантам той же группы, которые проходят этот узел. */
+function spreadNotes(r, target, touched){
+  const keys = Object.keys(touched || {});
+  if (!keys.length) return 0;
+  let hit = 0;
+  r.lines.forEach(l => {
+    if (l === target || l.id === target.id) return;
+    if (lineStart(l) !== lineStart(target) || (l.group || "") !== (target.group || "")) return;
+    let changed = false;
+    keys.forEach(key => {
+      const i = +key;
+      if (i >= 0){
+        if (l.sans.length <= i) return;
+        if (l.sans.slice(0, i + 1).join(" ") !== target.sans.slice(0, i + 1).join(" ")) return;
+      }
+      l.notes = l.notes || {};
+      const v = target.notes[key];
+      if (v){ if (l.notes[key] === v) return; l.notes[key] = v; }
+      else { if (!(key in l.notes)) return; delete l.notes[key]; }
+      changed = true;
+    });
+    if (changed) hit++;
+  });
+  return hit;
+}
+/* линия обрезана с хода i — всё, что было дальше, к новым ходам отношения не имеет */
+function trimNotes(i){
+  const e = op.edit;
+  Object.keys(e.notes).forEach(k => { if (+k >= i) delete e.notes[k]; });
+  Object.keys(e.glyphs).forEach(k => { if (+k >= i) delete e.glyphs[k]; });
 }
 /* ходы, которые из этой позиции уже есть в репертуаре */
 function contAt(pre){
@@ -3521,15 +3798,18 @@ function forkInfo(){
   });
   return best;
 }
-function editGo(i){ op.edit.i = clamp2(i, 0, op.edit.sans.length); op.sel = null; renderEdit(); }
+function editGo(i){ flushNote(); op.edit.i = clamp2(i, 0, op.edit.sans.length); op.sel = null; renderEdit(); }
 function editFollow(san){
-  if (op.edit.sans[op.edit.i] !== san) op.edit.dirty = true;
+  flushNote();
+  const changed = op.edit.sans[op.edit.i] !== san;
+  if (changed){ op.edit.dirty = true; trimNotes(op.edit.i); }
   const pre = op.edit.sans.slice(0, op.edit.i);
   op.edit.sans = pre.concat([san]);
   op.edit.i = op.edit.sans.length;
   op.sel = null; renderEdit();
 }
 function cycleAlt(dir){
+  flushNote();
   const i = op.edit.i;
   let at = i, alts = contAt(op.edit.sans.slice(0, i));
   if (alts.length < 2 && i > 0){ at = i - 1; alts = contAt(op.edit.sans.slice(0, i - 1)); }
@@ -3539,11 +3819,16 @@ function cycleAlt(dir){
   k = ((k < 0 ? -dir : k) + dir + alts.length) % alts.length;
   const pick = alts[k], pre = op.edit.sans.slice(0, at);
   if (op.edit.dirty){
+    trimNotes(at);
     op.edit.sans = pre.concat([pick.san]);
   } else {
     op.edit.sans = pick.line.sans.slice();       /* перескакиваем на сам вариант целиком */
     op.edit.lineId = pick.line.id;
+    op.edit.notes = Object.assign({}, pick.line.notes || {});
+    op.edit.glyphs = Object.assign({}, pick.line.glyphs || {});
+    op.edit.group = pick.line.group || "";
     $$("opEName").value = pick.line.name;
+    $$("opEGroup").value = op.edit.group;
     $$("opELab").textContent = "Правка варианта";
   }
   op.edit.i = Math.min(at + 1, op.edit.sans.length);
@@ -3551,9 +3836,11 @@ function cycleAlt(dir){
   toast("Ветка: " + figurine(pick.san, plyMeta(op.edit.start, at).side) + " · " + pick.line.name);
 }
 function editPlay(from, to){
+  flushNote();
   const ns = editNodes(), n = ns[clamp2(op.edit.i, 0, ns.length - 1)];
   const mv = makeMove(n.fen, from, to);
   if (!mv){ op.sel = null; renderEdit(); return; }
+  if (op.edit.sans[op.edit.i] !== mv.san) trimNotes(op.edit.i);
   op.edit.dirty = true;
   op.edit.sans = op.edit.sans.slice(0, op.edit.i);
   op.edit.sans.push(mv.san);
@@ -3590,16 +3877,25 @@ function editEval(fen){
   });
 }
 function saveEdit(forceNew){
+  flushNote();
   const r = op.rep, sans = op.edit.sans, start = op.edit.start, key = sans.join(" ");
   if (!sans.length){ toast("В варианте нет ходов — сыграй их на доске.", 1); return; }
   let name = $$("opEName").value.trim();
+  const group = $$("opEGroup").value.trim();
+  op.edit.group = group;
+  const notes = Object.assign({}, op.edit.notes), glyphs = Object.assign({}, op.edit.glyphs);
+  const touched = op.edit.touched || {};
+  const spreadMsg = n => n ? " · комментарий встал и в соседние ветки (" + n + ")" : "";
   const auto = () => (start === START0 && CH.openingName ? CH.openingName(sans) : "") ||
-    (op.edit.group ? op.edit.group : "") || ("Вариант " + (r.lines.length + 1));
+    (group ? group : "") || ("Вариант " + (r.lines.length + 1));
   const twin = r.lines.find(l => lineStart(l) === start && l.sans.join(" ") === key);
   if (twin && (!op.edit.lineId || twin.id === op.edit.lineId || forceNew)){
     twin.name = name || twin.name || auto();
+    twin.group = group;
+    twin.notes = notes; twin.glyphs = glyphs;
+    const n = spreadNotes(r, twin, touched);
     saveReps(); op.edit = null; renderRep(); opShow("rep");
-    toast("Вариант сохранён");
+    toast("Вариант сохранён" + spreadMsg(n));
     return;
   }
   const old = op.edit.lineId ? lineById(r, op.edit.lineId) : null;
@@ -3608,9 +3904,12 @@ function saveEdit(forceNew){
     const changed = old.sans.join(" ") !== key;
     old.name = name || old.name;
     old.sans = sans;
+    old.group = group;
+    old.notes = notes; old.glyphs = glyphs;
     if (changed) old.st = { reps:0, runs:0, errs:0, due:0, step:0, last:0 };
+    const n = spreadNotes(r, old, touched);
     saveReps(); op.edit = null; renderRep(); opShow("rep");
-    toast(changed ? "Вариант обновлён — повторения обнулились" : "Вариант сохранён");
+    toast((changed ? "Вариант обновлён — повторения обнулились" : "Вариант сохранён") + spreadMsg(n));
     return;
   }
   const fk = forkNote() || forkInfo();
@@ -3624,20 +3923,26 @@ function saveEdit(forceNew){
     while (used(nm + " · ветка " + i)) i++;
     nm = nm + " · ветка " + i;
   }
-  r.lines.push({ id:uid(), start, group: op.edit.group || (old ? old.group : "") || "",
-    name: nm,
-    sans, st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } });
+  const fresh = { id:uid(), start, group: group || (old ? old.group : "") || "",
+    name: nm, sans, notes, glyphs,
+    st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } };
+  r.lines.push(fresh);
+  const n = spreadNotes(r, fresh, touched);
   saveReps(); op.edit = null; renderRep(); opShow("rep");
-  toast("Добавлена новая ветка");
+  toast("Добавлена новая ветка — она встала подвариантом в это же дерево" + spreadMsg(n));
 }
 function addToEditor(text){
   const ns = editNodes(), fen0 = ns[clamp2(op.edit.i, 0, ns.length - 1)].fen;
   const lines = pgnLines(text, fen0);
   if (!lines.length){ toast("С этой позиции такие ходы не играются.", 1); return 0; }
-  op.edit.sans = op.edit.sans.slice(0, op.edit.i).concat(lines[0]);
+  const off = op.edit.i, ln = lines[0];
+  trimNotes(off);
+  op.edit.sans = op.edit.sans.slice(0, off).concat(ln.sans);
+  Object.keys(ln.notes || {}).forEach(k => { if (+k >= 0) op.edit.notes[+k + off] = ln.notes[k]; });
+  Object.keys(ln.glyphs || {}).forEach(k => { op.edit.glyphs[+k + off] = ln.glyphs[k]; });
   op.edit.i = op.edit.sans.length;
   renderEdit();
-  return lines[0].length;
+  return ln.sans.length;
 }
 /* разбиваем PGN на партии/главы */
 function splitGames(text){
@@ -3662,7 +3967,7 @@ async function fetchSource(raw){
   if (m){
     toast(m[2] ? "Качаю главу study с lichess…" : "Качаю study с lichess…");
     const url = "https://lichess.org/api/study/" + m[1] + (m[2] ? "/" + m[2] : "") +
-                ".pgn?clocks=false&comments=false&variations=true";
+                ".pgn?clocks=false&comments=true&variations=true";
     try {
       const r = await fetch(url);
       if (!r.ok) throw new Error(r.status);
@@ -3673,7 +3978,7 @@ async function fetchSource(raw){
   if (g){
     toast("Качаю партию с lichess…");
     try {
-      const r = await fetch("https://lichess.org/game/export/" + g[1] + "?clocks=false&evals=false&literate=false");
+      const r = await fetch("https://lichess.org/game/export/" + g[1] + "?clocks=false&evals=false&literate=true");
       if (!r.ok) throw new Error(r.status);
       return await r.text();
     } catch(e){ toast("Не получилось скачать эту партию.", 1); return null; }
@@ -3692,11 +3997,11 @@ async function importText(raw){
   if (text) await addPgnText(text);
 }
 /* создать новый дебют сразу из ссылки/PGN */
-async function loadNewRep(raw, side){
+async function loadNewRep(raw, side, folder){
   const text = await fetchSource(raw);
   if (!text) return;
   const r = { id:uid(), name: studyTitle(text) || "Новый дебют", side: side || "w",
-              target:3, made:Date.now(), lines:[] };
+              folder: addFold(folder), target:3, made:Date.now(), lines:[] };
   reps.push(r);
   saveReps();
   openRep(r);
@@ -3713,13 +4018,15 @@ function collectLines(text){
     const lines = pgnLines(g.body, g.fen);
     if (!lines.length) return;
     chapters++;
-    lines.forEach((sans, i) => {
+    lines.forEach((ln, i) => {
+      const sans = ln.sans;
       const key = g.fen + "|" + sans.join(" ");
       if (r.lines.some(l => lineStart(l) + "|" + l.sans.join(" ") === key)){ dup++; return; }
       if (out.some(o => o.key === key)){ dup++; return; }
       const auto = g.fen === START0 && CH.openingName ? CH.openingName(sans) : "";
       const base = g.name || auto || "Вариант";
       out.push({ key, group: g.name || "", start: g.fen, sans,
+                 notes: ln.notes || {}, glyphs: ln.glyphs || {},
                  name: base + (lines.length > 1 ? " · ветка " + (i + 1) : "") });
     });
   });
@@ -3727,6 +4034,7 @@ function collectLines(text){
 }
 function pushLine(c){
   op.rep.lines.push({ id:uid(), group:c.group, start:c.start, name:c.name, sans:c.sans,
+    notes: c.notes || {}, glyphs: c.glyphs || {},
     ev: c.ev == null ? null : c.ev, st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } });
 }
 async function addPgnText(text){
@@ -3812,7 +4120,7 @@ function nextLine(){
   if (!t.q.length){ finishSession(); return; }
   const it = t.q.shift();
   t.cur = { rep:it.rep, line:it.line, nodes:nodesOf(it.line.sans, lineStart(it.line)),
-            i:0, errs:0, helped:false, shown:false, wrong:null, done:false };
+            i:0, winFrom:0, errs:0, helped:false, shown:false, wrong:null, done:false };
   $$("opTBar").classList.add("gone");
   op.flip = it.rep.side === "b";
   op.sel = null;
@@ -3863,6 +4171,7 @@ function trainMove(from, to){
     if (q) markCard(q, show ? "show" : "ok");
     if (show) t.shown = true;
     saveReps();
+    t.winFrom = t.i;
     t.i++; op.sel = null; t.good = mv.to;
     renderTrain();
     setTimeout(() => { t.good = null; autoStep(); }, 260);
@@ -3875,6 +4184,7 @@ function trainMove(from, to){
       op.train.q.push({ rep:t.rep, line:t.line });     /* исходную линию вернём в очередь */
     t.line = alt.line;
     t.nodes = alt.nodes;
+    t.winFrom = t.i;
     t.i++;
     op.sel = null; t.good = mv.to;
     toast("Ветка: " + alt.line.name);
@@ -3923,6 +4233,7 @@ function acceptCorrection(){
   if (q && (!t.wrong || !t.wrong.show)) markCard(q, "bad");
   saveReps();
   t.wrong = null;
+  t.winFrom = t.i;
   t.i++;
   renderTrain();
   setTimeout(autoStep, 380);
@@ -3961,6 +4272,7 @@ function finishSession(){
   const t = op.train;
   const mins = Math.max(1, Math.round((Date.now() - t.started) / 60000));
   drawBoard("opTBoard", START0, { flip:op.flip });
+  $$("opTNoteCard").classList.add("gone");
   $$("opTWho").textContent = "сессия закончена";
   $$("opTProg").style.width = "100%";
   $$("opTLab").textContent = "Готово";
@@ -4005,6 +4317,36 @@ function finishEval(c){
     CH.engine.go(fen, 14, 1, j => draw(j.pvs[0]), 7000).then(r => draw(r.pvs[0]));
   });
 }
+/* Комментарий привязан к ходу: notes[k] — мысль к ходу sans[k], та же,
+   что стоит у этого хода на lichess.
+   Показываем все, что прошли с прошлого своего хода: сыграл — соперник
+   отвечает через четверть секунды, и текст к своему ходу иначе успевал бы
+   только мигнуть. Комментарий к ходу, который ещё надо найти, не показываем
+   никогда — это была бы подсказка. */
+function moveLab(l, k){
+  if (k < 0) return "начало варианта";
+  const m = plyMeta(lineStart(l), k);
+  return m.num + (m.side === "w" ? ". " : "… ") + figurine(l.sans[k], m.side) +
+         (glyphAt(l, k) ? " " + glyphAt(l, k) : "");
+}
+function showTrainNote(c){
+  const card = $$("opTNoteCard"), box = $$("opTNote");
+  if (!card) return;
+  const notes = c.line.notes || {}, from = c.winFrom || 0, hits = [];
+  if (!from && notes["-1"]) hits.push({ k:-1, t:notes["-1"] });
+  for (let k = from; k <= c.i - 1; k++) if (notes[k]) hits.push({ k, t:notes[k] });
+  let back = false;
+  if (!hits.length){                       /* в этот заход ничего нового — держим последнее сказанное */
+    for (let k = Math.min(from, c.i) - 1; k >= -1; k--)
+      if (notes[k]){ hits.push({ k, t:notes[k] }); back = true; break; }
+  }
+  if (!hits.length){ card.classList.add("gone"); box.innerHTML = ""; return; }
+  card.classList.remove("gone");
+  $$("opTNoteLab").textContent = (hits.length > 1 ? "Комментарии" : "Комментарий") +
+    (back ? " · выше по варианту" : "");
+  box.innerHTML = hits.map(h => `<div class="opnoteitem"><b>${esc(moveLab(c.line, h.k))}</b>` +
+    esc(h.t).replace(/\n/g, "<br>") + "</div>").join("");
+}
 function setMode(txt, cls){
   const el = $$("opTMode");
   el.textContent = txt;
@@ -4035,10 +4377,13 @@ function renderTrain(){
     const m = plyMeta(lineStart(c.line), k);
     if (m.side === "w" || !k) host.insertAdjacentHTML("beforeend",
       `<span class="num">${m.num}${m.side === "w" ? "." : "…"}</span>`);
+    const cls = (k + 1 === c.i ? "cur " : "") + (c.line.notes && c.line.notes[k] ? "note" : "");
     host.insertAdjacentHTML("beforeend",
-      `<button class="${k + 1 === c.i ? "cur" : ""}">${figurine(c.nodes[k + 1].san, m.side)}</button>`);
+      `<button class="${cls.trim()}">${figurine(c.nodes[k + 1].san, m.side)}` +
+      esc(glyphAt(c.line, k)) + `</button>`);
   }
   if (!c.i) host.innerHTML = '<span class="empty">Вариант с самого начала.</span>';
+  showTrainNote(c);
   $$("opTStat").innerHTML = statHtml() +
     `<div class="opq" style="grid-column:1/-1">Повторений у варианта: <b>${st.reps} из ${target}</b>` +
     (t.q.length ? ` · в очереди ещё <b>${t.q.length}</b>` : " · это последний в очереди") + `</div>`;
@@ -4114,7 +4459,8 @@ function boardHandler(which){
 bindBoardClicks("opEBoard", boardHandler("edit"));
 bindBoardClicks("opTBoard", boardHandler("train"));
 
-$$("opNew").onclick = newRep;
+$$("opNew").onclick = () => newRep("");
+$$("opNewFold").onclick = newFolder;
 $$("opNewGo").onclick = newRepGo;
 $$("opNewCancel").onclick = () => $$("opNewBox").classList.add("gone");
 $$("opNewName").addEventListener("keydown", e => { if (e.key === "Enter") newRepGo(); });
@@ -4130,6 +4476,46 @@ $$("opRename").onclick = () => {
   if (n && n.trim()){ op.rep.name = n.trim(); saveReps(); $$("opRepName").textContent = op.rep.name; renderList(); }
 };
 $$("opDelete").onclick = () => delRep(op.rep);
+$$("opFoldBtn").onclick = () => {
+  fillFoldList();
+  $$("opFoldBox").classList.toggle("gone");
+  if (!$$("opFoldBox").classList.contains("gone")){
+    $$("opFoldName").value = op.rep.folder || "";
+    $$("opFoldName").focus();
+  }
+};
+$$("opFoldCancel").onclick = () => $$("opFoldBox").classList.add("gone");
+$$("opFoldGo").onclick = () => {
+  const r = op.rep, was = r.folder || "";
+  r.folder = addFold($$("opFoldName").value);
+  saveReps();
+  $$("opFoldBox").classList.add("gone");
+  $$("opRepSub").textContent = (r.side === "w" ? "за белых" : "за чёрных") +
+    (r.folder ? " · папка «" + r.folder + "»" : "");
+  $$("opCrumbRep").textContent = (r.folder ? r.folder + " / " : "") + r.name;
+  renderList();
+  toast(r.folder ? "Дебют лежит в папке «" + r.folder + "»" : (was ? "Дебют вынут из папки" : "Папка не задана"));
+};
+$$("opFoldName").addEventListener("keydown", e => { if (e.key === "Enter") $$("opFoldGo").click(); });
+
+/* --- группа внутри дебюта: заводим и сразу открываем доску --- */
+$$("opAddGroup").onclick = () => {
+  fillGroupList();
+  $$("opGroupBox").classList.toggle("gone");
+  if (!$$("opGroupBox").classList.contains("gone")){
+    $$("opGroupName").value = "";
+    $$("opGroupName").focus();
+  }
+};
+$$("opGroupCancel").onclick = () => $$("opGroupBox").classList.add("gone");
+$$("opGroupGo").onclick = () => {
+  const n = $$("opGroupName").value.trim();
+  if (!n){ $$("opGroupName").focus(); return; }
+  $$("opGroupBox").classList.add("gone");
+  openEdit(op.rep, null, [], START0, n);
+  toast("Группа «" + n + "» — играй линию на доске");
+};
+$$("opGroupName").addEventListener("keydown", e => { if (e.key === "Enter") $$("opGroupGo").click(); });
 $$("opTarget").onchange = () => { op.rep.target = +$$("opTarget").value || 3; saveReps(); renderRep(); renderList(); };
 $$("opAddLine").onclick = () => openEdit(op.rep, null);
 $$("opTrainRep").onclick = () => startTrain(op.rep, "all");
@@ -4165,10 +4551,35 @@ bindCheck("opChkOn2", "opChkLvl2");
 $$("opEFlip").onclick = () => { op.flip = !op.flip; renderEdit(); };
 $$("opEBack").onclick = () => {
   if (!op.edit.sans.length) return;
-  op.edit.sans = op.edit.sans.slice(0, Math.max(0, op.edit.i - 1)).concat(op.edit.sans.slice(op.edit.i));
-  op.edit.i = Math.max(0, op.edit.i - 1);
+  flushNote();
+  const cut = Math.max(0, op.edit.i - 1);
+  const shift = map => { const out = {};
+    Object.keys(map).forEach(k => { const i = +k;
+      if (i < cut) out[i] = map[k]; else if (i > cut) out[i - 1] = map[k]; });
+    return out; };
+  op.edit.notes = shift(op.edit.notes);
+  op.edit.glyphs = shift(op.edit.glyphs);
+  op.edit.sans = op.edit.sans.slice(0, cut).concat(op.edit.sans.slice(op.edit.i));
+  op.edit.i = cut;
   op.sel = null; renderEdit();
 };
+
+/* --- комментарий к ходу --- */
+$$("opENoteSave").onclick = () => {
+  flushNote();
+  renderEdit();
+  toast($$("opENote").value.trim() ? "Комментарий записан" : "Комментарий убран");
+};
+$$("opENoteDel").onclick = () => {
+  const k = noteKey();
+  delete op.edit.notes[k];
+  op.edit.touched[k] = 1;
+  $$("opENote").value = "";
+  renderEdit();
+  toast("Комментарий убран");
+};
+$$("opENote").addEventListener("blur", flushNote);
+$$("opEGroup").addEventListener("change", () => { if (op.edit) op.edit.group = $$("opEGroup").value.trim(); });
 $$("opESave").onclick = () => saveEdit(false);
 $$("opESaveNew").onclick = () => saveEdit(true);
 $$("opViewSeg").querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -4203,6 +4614,17 @@ $$("opTree").addEventListener("click", e => {
   if (b.dataset.gadd){
     const g = treeGroup(b.dataset.gadd);
     if (g) openEditAt(g, []);
+    return;
+  }
+  if (b.dataset.gren){
+    const g = treeGroup(b.dataset.gren);
+    if (!g) return;
+    const n = prompt("Название группы", g.name);
+    if (n === null) return;
+    const to = n.trim();
+    g.lines.forEach(l => l.group = to);
+    saveReps(); renderRep();
+    toast(to ? "Группа теперь «" + to + "»" : "Группа убрана");
     return;
   }
   if (b.dataset.p !== undefined && b.dataset.s){
@@ -4261,8 +4683,9 @@ $$("opLoadSide").querySelectorAll("button").forEach(b => b.onclick = () => {
 });
 $$("opLoadGo").onclick = async () => {
   const t = $$("opLoadText").value;
+  const folder = $$("opLoadFolder").value;
   $$("opLoadGo").disabled = true;
-  await loadNewRep(t, loadSide);
+  await loadNewRep(t, loadSide, folder);
   $$("opLoadGo").disabled = false;
   $$("opLoadText").value = "";
 };
@@ -4353,7 +4776,9 @@ $$("opIOApply").onclick = () => {
     const i = reps.findIndex(x => x.id === r.id);
     if (i < 0){ reps.push(r); fresh++; } else { reps[i] = r; upd++; }
   });
-  saveReps(); loadReps(); renderList();
+  saveReps(); loadReps();
+  reps.forEach(r => addFold(r.folder));
+  renderList();
   $$("opIO").classList.add("gone");
   toast("Добавлено: " + fresh + (upd ? ", обновлено: " + upd : ""));
 };
