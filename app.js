@@ -448,13 +448,34 @@ function pvToSan(fen, ucis, max){
   return out.join(" ");
 }
 
-/* ===== Stockfish 18 в браузере: доска анализа ===== */
-/* локальная копия рядом с файлом работает только по http(s): из file:// браузер её не отдаёт */
-const SF_SOURCES = (location.protocol === "file:" ? [] : ["./stockfish-18-lite-single.js"]).concat([
+/* ===== Stockfish 19 в браузере: доска анализа ===== */
+/* Движок лежит в репозитории рядом с сайтом. Многопоточная сборка
+   работает только на изолированной странице (см. coi-sw.js), иначе —
+   однопоточная. Из file:// браузер локальные файлы воркеру не отдаёт,
+   там сразу CDN. Stockfish 19 на jsDelivr не лежит: пакет больше их
+   лимита, поэтому CDN для него — unpkg, а 18-я остаётся запасной. */
+const SF_MT = "./stockfish-19-lite.js";
+const SF_SOURCES = (location.protocol === "file:" ? [] :
+    (self.crossOriginIsolated ? [SF_MT] : []).concat(["./stockfish-19-lite-single.js"])).concat([
+  "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-lite-single.js",
   "https://cdn.jsdelivr.net/npm/stockfish@18.0.8/bin/stockfish-18-lite-single.js",
-  "https://unpkg.com/stockfish@18.0.8/bin/stockfish-18-lite-single.js",
   "https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish-nnue-16-single.js"
 ]);
+/* все ядра, кроме одного — его оставляем странице */
+const SF_THREADS = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1));
+/* Свой файл запускаем напрямую: многопоточная сборка порождает потоки
+   из собственного адреса, и обёртка-blob ей это ломает. Чужой (CDN)
+   напрямую воркером не открыть — только через blob с importScripts. */
+function sfWorker(js){
+  const url = new URL(js, location.href);
+  if (url.origin === location.origin) return new Worker(url.href);
+  const blob = new Blob(["importScripts(" + JSON.stringify(url.href) + ");"], { type: "text/javascript" });
+  return new Worker(URL.createObjectURL(blob) + "#" + encodeURIComponent(url.href.replace(/\.js$/i, ".wasm")));
+}
+/* после uciok: потоки — только у многопоточной сборки */
+function sfSetup(w, js){
+  if (js === SF_MT && SF_THREADS > 1) w.postMessage("setoption name Threads value " + SF_THREADS);
+}
 let eng = null, engState = "off", engSrcIdx = 0, anOver = "";
 let searching = false, searchFen = "", pendingFen = "";
 let anInfo = { depth: 0, pvs: [] };
@@ -464,15 +485,11 @@ function engStart(){
   engState = "loading"; anRender();
   const tryLoad = i => {
     if (i >= SF_SOURCES.length){ engState = "fail"; anRender(); return; }
-    const js = SF_SOURCES[i], wasm = js.replace(/\.js$/i, ".wasm");
+    const js = SF_SOURCES[i];
     let w;
-    try {
-      const blob = new Blob(["importScripts(" + JSON.stringify(new URL(js, location.href).href) + ");"],
-        { type: "text/javascript" });
-      w = new Worker(URL.createObjectURL(blob) + "#" + encodeURIComponent(new URL(wasm, location.href).href));
-    } catch(e){ tryLoad(i + 1); return; }
-    /* Первый источник — локальный файл, которого обычно нет, поэтому
-       запасной путь через CDN штатно срабатывает почти сразу. Но таймаут
+    try { w = sfWorker(js); } catch(e){ tryLoad(i + 1); return; }
+    /* Если локальный источник не поднялся (скажем, нет изоляции или файла),
+       запасной путь срабатывает почти сразу. Но таймаут
        упавшего источника раньше продолжал тикать и через несколько секунд
        запускал запасной путь второй раз: рождался ещё один Stockfish, и
        два движка писали оценку в одно поле — отсюда скачущая глубина.
@@ -486,7 +503,7 @@ function engStart(){
       tryLoad(i + 1);
     };
     w.onerror = fail;
-    timer = setTimeout(fail, /^https?:/i.test(js) ? 40000 : 6000);
+    timer = setTimeout(fail, /^https?:/i.test(js) ? 40000 : 20000);
     w.onmessage = e => {
       const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
       if (!alive && /abort|RuntimeError|Failed to fetch|failed to load/i.test(s)){ fail(); return; }
@@ -494,6 +511,7 @@ function engStart(){
         if (settled || eng){ try { w.terminate(); } catch(e2){} return; }
         alive = true; settled = true; clearTimeout(timer);
         eng = w; engSrcIdx = i; engState = "on";
+        sfSetup(w, js);
         send("setoption name MultiPV value 3");
         send("setoption name Hash value 64");
         send("ucinewgame"); searching = false; pendingFen = ""; anGo(); anRender();
@@ -623,10 +641,10 @@ function anRenderEval(){
   $("evalFill").style.width = evalPct(top) + "%";
   $("anDepth").textContent =
     anOver ? (anOver === "мат" ? "мат — партия окончена" : "пат — ничья") :
-    engState === "loading" ? "Stockfish 18 загружается…" :
+    engState === "loading" ? "Stockfish 19 загружается…" :
     engState === "fail" ? "движок не загрузился — нужен интернет" :
     engState === "off" ? "движок выключен" :
-    anInfo.depth ? "Stockfish 18 · глубина " + anInfo.depth : "Stockfish 18 · считает…";
+    anInfo.depth ? "Stockfish 19 · глубина " + anInfo.depth : "Stockfish 19 · считает…";
   const host = $("anLines"); host.innerHTML = "";
   if (engState !== "on" || anOver) return;
   anInfo.pvs.slice(0, 3).forEach(e => {
@@ -1118,7 +1136,7 @@ $("themeBtn").onclick = () => {
 renderBooks();
 show("books");
 
-/* ===== РАЗБОР ПАРТИИ: chess.com / lichess / PGN / FEN + Stockfish 18 ===== */
+/* ===== РАЗБОР ПАРТИИ: chess.com / lichess / PGN / FEN + Stockfish 19 ===== */
 (function(){
 "use strict";
 const $$ = id => document.getElementById(id);
@@ -1363,7 +1381,7 @@ function buildGame(pgn){
 }
 
 /* ===== движок разбора: отдельный воркер ===== */
-let rw = null, rwState = "off", rwMulti = 0, rwJob = null, rwNext = null;
+let rw = null, rwState = "off", rwMulti = 0, rwJob = null, rwNext = null, rwThreads = 1;
 function rwLoad(){
   if (rw) return Promise.resolve(true);
   if (rwState === "loading") return new Promise(r => { const t = setInterval(() => {
@@ -1372,13 +1390,9 @@ function rwLoad(){
   return new Promise(resolve => {
     const tryLoad = i => {
       if (i >= SF_SOURCES.length){ rwState = "fail"; resolve(false); return; }
-      const js = SF_SOURCES[i], wasm = js.replace(/\.js$/i, ".wasm");
+      const js = SF_SOURCES[i];
       let w;
-      try {
-        const blob = new Blob(["importScripts(" + JSON.stringify(new URL(js, location.href).href) + ");"],
-          { type:"text/javascript" });
-        w = new Worker(URL.createObjectURL(blob) + "#" + encodeURIComponent(new URL(wasm, location.href).href));
-      } catch(e){ tryLoad(i + 1); return; }
+      try { w = sfWorker(js); } catch(e){ tryLoad(i + 1); return; }
       let alive = false, settled = false, timer = null;
       const fail = () => {                        /* один переход к следующему источнику */
         if (alive || settled) return;
@@ -1388,7 +1402,7 @@ function rwLoad(){
         tryLoad(i + 1);
       };
       w.onerror = fail;
-      timer = setTimeout(fail, /^https?:/i.test(js) ? 45000 : 6000);
+      timer = setTimeout(fail, /^https?:/i.test(js) ? 45000 : 20000);
       w.onmessage = e => {
         const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
         if (!alive && /abort|RuntimeError|Failed to fetch|failed to load/i.test(s)){ fail(); return; }
@@ -1396,6 +1410,8 @@ function rwLoad(){
           if (settled || rw){ try { w.terminate(); } catch(e2){} return; }
           alive = true; settled = true; clearTimeout(timer);
           rw = w; rwState = "on"; rwMulti = 0;
+          sfSetup(w, js);
+          rwThreads = js === SF_MT ? SF_THREADS : 1;
           w.postMessage("setoption name Hash value 64");
           w.postMessage("ucinewgame");
           resolve(true);
@@ -1502,23 +1518,82 @@ function pvBalanceEnd(fen, pv, side, plies){
   }
   return balance(f, side);
 }
+/* самый дешёвый нападающий side на поле sq (0 — никто не бьёт) */
+function cheapestAttacker(pos, sq, by){
+  const f0 = FILES.indexOf(sq[0]), r0 = +sq[1] - 1;
+  let low = 0;
+  const see = (f, r, types) => {
+    if (!onB(f, r)) return;
+    const pc = pos[SQN(f, r)];
+    if (!pc || isW(pc) !== (by === "w") || types.indexOf(pc.toLowerCase()) < 0) return;
+    const v = pc.toLowerCase() === "k" ? 100 : PVAL[pc.toLowerCase()];
+    if (!low || v < low) low = v;
+  };
+  const pd = by === "w" ? -1 : 1;
+  for (const df of [-1, 1]) see(f0 + df, r0 + pd, ["p"]);
+  for (const [df, dr] of NJ) see(f0 + df, r0 + dr, ["n"]);
+  for (const [df, dr] of KJ) see(f0 + df, r0 + dr, ["k"]);
+  for (const kind of ["b", "r"]) for (const [df, dr] of RAYS[kind]){
+    let f = f0 + df, r = r0 + dr;
+    while (onB(f, r)){
+      const pc = pos[SQN(f, r)];
+      if (pc){ see(f, r, [kind, "q"]); break; }
+      f += df; r += dr;
+    }
+  }
+  return low;
+}
+/* Сколько материала side висит прямо сейчас: фигура без защиты или
+   под боем более дешёвой фигуры. Грубая оценка размена, без X-лучей. */
+function hanging(fen, side){
+  const pos = parseFen(fen), opp = side === "w" ? "b" : "w";
+  let v = 0, sq = "";
+  for (const s in pos){
+    const pc = pos[s];
+    if (isW(pc) !== (side === "w") || pc.toLowerCase() === "k") continue;
+    const a = cheapestAttacker(pos, s, opp);
+    if (!a) continue;
+    const val = PVAL[pc.toLowerCase()];
+    const defended = attacked(pos, s, side);
+    if (a === 100 && defended) continue;         /* король защищённое не берёт */
+    const lose = defended ? val - a : val;
+    if (lose > v){ v = lose; sq = s; }
+  }
+  return { v, sq };
+}
 function classifyAll(){
   const g = rv.game, ev = rv.evals, out = [];
   for (let k = 0; k + 1 < g.nodes.length; k++){
     const fen = g.nodes[k].fen, nf = g.nodes[k + 1].fen, side = turnOf(fen);
     const before = ev[k], after = ev[k + 1];
     const wB = winFor(before, fen, side), wA = winFor(after, nf, side);
-    const loss = Math.max(0, wB - wA);
     const played = g.nodes[k + 1].uci;
     const best = before ? before.best : "";
-    const isBest = !!best && (played === best || played.slice(0,4) === best.slice(0,4));
+    const isBest = !!best && played === best;
+    /* Первая линия движка ничего не теряет по определению. Оценки до и после
+       хода — два отдельных прогона, и между ними бывает шум в полпешки и
+       больше; без этого лучший ход попадал в ошибки и в «Работу над ошибками». */
+    const loss = isBest ? 0 : Math.max(0, wB - wA);
     const nLegal = before ? (before.legal || 2) : 2;
     const gap = before && before.second ? Math.max(0, winSTM(before) - winSTM(before.second)) : 0;
     const bookPly = k < g.bookPlies;
-    /* жертва: материал не возвращается в ближайшие 6 полуходов */
+    /* Жертва — это сам ход отдаёт фигуру: после него висит то, что до него
+       было в безопасности (пешки не в счёт), и материал не возвращается в
+       ближайшие 6 полуходов — или соперник вовсе не берёт. Раньше хватало
+       просадки материала в линии движка, и «блестящим» становился любой
+       уход из-под вилки или связки, где фигура терялась и без этого хода. */
     const bal0 = balance(fen, side);
-    const balEnd = after && after.pv ? pvBalanceEnd(nf, after.pv, side, 6) : balance(nf, side);
-    const sac = balEnd <= bal0 - 1.6 && balance(nf, side) <= bal0 + 0.1;
+    const got = Math.max(0, balance(nf, side) - bal0);        /* что сам ход взял */
+    const hB = isBest || loss <= 2.5 ? hanging(fen, side) : null;
+    const hA = hB ? hanging(nf, side) : null;
+    const offered = !!hA && hA.v - got >= 1.6 && hA.v >= hB.v + 1.6;
+    let sac = false;
+    if (offered){
+      const balEnd = after && after.pv ? pvBalanceEnd(nf, after.pv, side, 6) : balance(nf, side);
+      const reply = after && after.pv && after.pv[0] || "";
+      const declined = !!reply && reply.slice(2, 4) !== hA.sq && !inCheckNow(nf);
+      sac = balEnd <= bal0 - 1.6 || declined;
+    }
     const mateBefore = before && before.kind === "mate" && before.val > 0;
     const mateKept = after && after.kind === "mate" && after.val < 0;
     const mating = mateKept && Math.abs(after.val) <= 5;   /* ход ведёт к форсированному мату */
@@ -1539,7 +1614,7 @@ function classifyAll(){
     const cpAraw = after ? (after.kind === "mate" ? (after.val > 0 ? 1200 : -1200) : after.val) : 0;
     const cpA = -cpAraw;                       /* оценка после хода глазами того, кто ходил */
     out.push({ k, side, cat, loss, wB, wA, isBest, gap, sac, nLegal,
-               cpLoss: clamp(cpB - cpA, 0, 350),
+               cpLoss: isBest ? 0 : clamp(cpB - cpA, 0, 350),
                acc: clamp(103.1668 * Math.exp(-0.04354 * loss) - 3.1669, 0, 100),
                san: g.nodes[k + 1].san, uci: played, best, bookPly });
   }
@@ -1664,13 +1739,14 @@ async function startReview(src){
   if (me && (g.black || "").toLowerCase() === me) rv.flip = true;
   rvState("prog");
   $$("rvPTitle").textContent = g.white + " — " + g.black;
-  $$("rvPSub").textContent = "Stockfish 18 считает каждую позицию · глубина " + rv.depth;
+  $$("rvPSub").textContent = "Stockfish 19 считает каждую позицию · глубина " + rv.depth;
   progress(0, g.nodes.length, g.nodes[0].fen);
   if (cacheLoad()){ finishReview(); return; }
   $$("rvPSub").textContent = "Загружаю движок…";
   const ok = await rwLoad();
   if (!ok){ rvState("input"); setErr("Не удалось загрузить Stockfish. Нужен интернет — движок берётся с CDN."); return; }
-  $$("rvPSub").textContent = "Stockfish 18 считает каждую позицию · глубина " + rv.depth;
+  $$("rvPSub").textContent = "Stockfish 19 считает каждую позицию · глубина " + rv.depth +
+    (rwThreads > 1 ? " · потоков: " + rwThreads : "");
   rv.busy = true; rv.t0 = Date.now();
   const done = await runAnalysis();
   rv.busy = false;
@@ -2451,6 +2527,7 @@ function lessonPick(m){
 function drillList(side, mode){
   return rv.moves.filter(m => {
     if (m.side !== side || m.bookPly) return false;
+    if (m.isBest) return false;                  /* сильнее хода движка не найти */
     if (!BADCAT[m.cat] && !lessonPick(m)) return false;
     if (mode === "prevent" && !rv.game.nodes[m.k + 2]) return false;
     return true;
