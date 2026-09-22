@@ -3188,12 +3188,31 @@ function repCard(r){
   b.onclick = () => openRep(r);
   return b;
 }
-function addCard(text, fn){
-  const add = document.createElement("button");
-  add.className = "opcard add";
-  add.textContent = text;
-  add.onclick = fn;
-  return add;
+/* Карточка «добавить» — два пути: завести дебют руками или сразу
+   загрузить study по ссылке. Папка в обоих случаях уже подставлена,
+   чтобы новый дебют лёг именно сюда, а не в общую кучу. */
+function addCard(folder){
+  const box = document.createElement("div");
+  box.className = "opcard add";
+  box.innerHTML = `<button class="mk">+ Новый дебют</button>` +
+    `<button class="ld">Загрузить по ссылке</button>` +
+    `<span class="hint">${folder ? "в папку «" + esc(folder) + "»" : "без папки"}</span>`;
+  box.querySelector(".mk").onclick = () => newRep(folder);
+  box.querySelector(".ld").onclick = () => loadInto(folder);
+  return box;
+}
+/* форма загрузки одна на весь список — подставляем папку и подсвечиваем,
+   чтобы было видно, куда уехал клик */
+function loadInto(folder){
+  fillFoldList();
+  $$("opNewBox").classList.add("gone");
+  $$("opLoadFolder").value = folder || "";
+  const box = $$("opLoadBox");
+  box.classList.remove("flash");
+  void box.offsetWidth;
+  box.classList.add("flash");
+  box.scrollIntoView({ block:"center", behavior:"smooth" });
+  $$("opLoadText").focus();
 }
 function renderList(){
   const host = $$("opCards");
@@ -3211,10 +3230,12 @@ function renderList(){
     head.innerHTML = `<button class="nm"><span class="tw">▾</span>${esc(name)}</button>` +
       `<span class="cnt">${mine.length} ${wordRep(mine.length)}` +
       (due ? ` · к тренировке: ${due}` : "") + `</span><span class="sp"></span>` +
+      `<button class="act" data-fload="1">Загрузить сюда</button>` +
       `<button class="act" data-ftrain="1">Тренировать папку</button>` +
       `<button class="act" data-fren="1">Переименовать</button>` +
       `<button class="act" data-fdel="1">Убрать папку</button>`;
     head.querySelector(".nm").onclick = () => { toggleFold(name); renderList(); };
+    head.querySelector("[data-fload]").onclick = () => loadInto(name);
     head.querySelector("[data-ftrain]").onclick = () => trainFolder(name);
     head.querySelector("[data-fren]").onclick = () => {
       const n = prompt("Новое название папки", name);
@@ -3234,7 +3255,7 @@ function renderList(){
     const grid = document.createElement("div");
     grid.className = "opgrid";
     mine.forEach(r => grid.appendChild(repCard(r)));
-    grid.appendChild(addCard("+ Дебют в эту папку", () => newRep(name)));
+    grid.appendChild(addCard(name));
     box.appendChild(grid);
     host.appendChild(box);
   });
@@ -3252,7 +3273,7 @@ function renderList(){
   const grid = document.createElement("div");
   grid.className = "opgrid";
   loose.forEach(r => grid.appendChild(repCard(r)));
-  grid.appendChild(addCard("+ Новый дебют", () => newRep("")));
+  grid.appendChild(addCard(""));
   box.appendChild(grid);
   host.appendChild(box);
   whereStored();
