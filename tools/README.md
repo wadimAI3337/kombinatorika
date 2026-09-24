@@ -501,8 +501,18 @@ f6 вписано в FEN руками (`EP` в скрипте).
 `mindBlind()` и `mindTry()` в `app.js`).
 
 ```bash
-python mind/extract.py 3-khoda-v-ume.pdf mind.json
+python mind/extract.py 3-khoda-v-ume.pdf mind.json     # MIND,  500
+python mind/extract.py 4-khoda-v-ume.pdf mind4.json    # MIND4, 300
+python mind/extract.py 5-khodov-v-ume.pdf mind5.json   # MIND5, 400
 ```
+
+**4 и 5 ходов.** Скрипт тот же. В «5 ходах» 124 задачи открывают
+чёрные, и их диаграммы нарисованы чёрными снизу — ориентацию скрипт
+выбирает по законности ходов. Решающая сторона (`s`) — та, что ходит
+после `pre`; на сайте номер и очередь хода берутся из FEN (`fenNum`,
+`fenSide`, `mindNext` в `app.js`). Подписи под диаграммой бывают в
+три строки, рокировка — разорвана переносом («O- O»). Взятия на
+проходе первым ходом: «4 хода» №149, «5 ходов» №165.
 
 ---
 

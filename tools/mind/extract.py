@@ -14,22 +14,39 @@
 дописано руками (EP), по диаграмме его не узнать. Все 500 ответов тоже
 законны.
 
+Так же устроены «4 хода в уме» (300) и «5 ходов в уме» (400), скрипт
+общий. Отличия, которые он учитывает сам: страницы диаграмм и ответов
+находит по рамкам досок; если задачу открывают чёрные («1...f5»),
+диаграмма нарисована чёрными снизу — ориентация выбирается по
+законности ходов; подпись под диаграммой бывает в три строки;
+рокировка бывает разорвана переносом («O- O»). Взятия на проходе
+первым ходом — в EPS по книгам.
+
 Запуск:  pip install pymupdf python-chess
-         python extract.py 3-khoda-v-ume.pdf mind.json
+         python extract.py 3-khoda-v-ume.pdf mind.json     # → MIND
+         python extract.py 4-khoda-v-ume.pdf mind4.json    # → MIND4
+         python extract.py 5-khodov-v-ume.pdf mind5.json   # → MIND5
 """
 import sys, re, json, itertools
 from collections import Counter, defaultdict
 import pymupdf, chess
 
 PDF, OUT = sys.argv[1], sys.argv[2]
-DIAG_PAGES = range(1, 57)          # страницы 2–57, считая с нуля
-ANS_PAGES = range(57, 74)          # страницы 58–74
 SQC = {(0.82, 0.55, 0.28), (1.0, 0.81, 0.62)}   # тёмная и светлая клетка
 FIG = dict(zip("♔♕♖♗♘♚♛♜♝♞", "KQRBNKQRBN"))
-EP = {199: "f6"}                   # взятие на проходе первым ходом
+# взятие на проходе первым ходом: по диаграмме не видно, что последним
+# ходом соперник двинул пешку на два поля, поэтому поле вписано руками
+EPS = {"3-khoda-v-ume": {199: "f6"}, "4-khoda-v-ume": {149: "f6"}, "5-khodov-v-ume": {165: "f6"}}
+EP = next((v for k, v in EPS.items() if k in PDF), {})
 
 rgb = lambda x: tuple(round(v, 2) for v in x["fill"]) if x.get("fill") else None
 doc = pymupdf.open(PDF)
+# страницы с диаграммами — где есть рамки досок, ответы — всё после них
+def has_board(p):
+    return any(x["type"] == "f" and x.get("fill") and round(x["fill"][0], 2) == 0.13
+               and x["rect"].width > 100 for x in p.get_drawings())
+DIAG_PAGES = [i for i in range(doc.page_count) if has_board(doc[i])]
+ANS_PAGES = range(DIAG_PAGES[-1] + 1, doc.page_count)
 
 
 def boards():
@@ -61,13 +78,14 @@ def boards():
             num = [w[4] for w in words if w[4].isdigit()
                    and fr.x0 < (w[0] + w[2]) / 2 < fr.x1 and fr.y0 - 20 < w[3] <= fr.y0 + 1]
             mv = sorted((w for w in words if fr.x0 - 15 < (w[0] + w[2]) / 2 < fr.x1 + 15
-                         and fr.y1 < w[1] < fr.y1 + 45), key=lambda w: (round(w[1]), w[0]))
+                         and fr.y1 < w[1] < fr.y1 + 62), key=lambda w: (round(w[1]), w[0]))
             out.append({"n": int(num[0]), "cells": {k: json.dumps(sorted(v)) for k, v in cells.items()},
                         "moves": " ".join(w[4] for w in mv)})
     return sorted(out, key=lambda b: b["n"])
 
 
 def sans(s):
+    s = re.sub(r"O-\s+O", "O-O", s)            # рокировка, разорванная переносом строки
     out = []
     for t in s.split():
         if re.fullmatch(r"\d+\.*", t): continue
@@ -77,17 +95,20 @@ def sans(s):
     return out
 
 
-def fen_of(b, lab):
+def fen_of(b, lab, flip=None):
+    # если начинают чёрные, диаграмма нарисована чёрными снизу
+    if flip is None: flip = b.get("flip", False)
     rows = []
     for r in range(8):
         row, e = "", 0
         for c in range(8):
-            fp = b["cells"].get((c, r))
+            fp = b["cells"].get((7 - c, 7 - r) if flip else (c, r))
             if fp:
                 row += (str(e) if e else "") + lab[fp]; e = 0
             else: e += 1
         rows.append(row + (str(e) if e else ""))
-    bd = chess.Board("/".join(rows) + " w - - 0 1")
+    side = "b" if re.match(r"\s*1\.\.\.", b["moves"]) else "w"
+    bd = chess.Board("/".join(rows) + " " + side + " - - 0 1")
     cr = ""
     P = chess.Piece.from_symbol
     if bd.piece_at(chess.E1) == P("K"):
@@ -96,7 +117,7 @@ def fen_of(b, lab):
     if bd.piece_at(chess.E8) == P("k"):
         cr += "k" if bd.piece_at(chess.H8) == P("r") else ""
         cr += "q" if bd.piece_at(chess.A8) == P("r") else ""
-    return "/".join(rows) + " w " + (cr or "-") + " " + EP.get(b["n"], "-") + " 0 1"
+    return "/".join(rows) + " " + side + " " + (cr or "-") + " " + EP.get(b["n"], "-") + " 0 1"
 
 
 def legal(fen, moves):
@@ -109,7 +130,8 @@ def legal(fen, moves):
 
 
 B = boards()
-assert [b["n"] for b in B] == list(range(1, 501))
+NB = len(B)
+assert [b["n"] for b in B] == list(range(1, NB + 1))
 
 # отпечатки → фигуры: цвет по заливке, короли по счёту, остальное перебором
 fps = Counter(fp for b in B for fp in b["cells"].values())
@@ -129,16 +151,22 @@ best = (-1, None)
 for perm in itertools.permutations("RQBN"):
     lab = dict(base)
     for (w, b), t in zip(pairs, perm): lab[w], lab[b] = t, t.lower()
-    n = sum(legal(fen_of(b, lab), sans(b["moves"])) for b in B)
+    n = sum(legal(fen_of(b, lab, False), sans(b["moves"])) or legal(fen_of(b, lab, True), sans(b["moves"])) for b in B)
     if n > best[0]: best = (n, lab)
 lab = best[1]
-print("ходы 1–3 законны:", best[0], "из", len(B))
+for b in B:     # ориентация: та, где ходы до решения законны
+    b["flip"] = not legal(fen_of(b, lab, False), sans(b["moves"])) and legal(fen_of(b, lab, True), sans(b["moves"]))
+print("перевёрнутых диаграмм:", sum(b["flip"] for b in B), "— все с ходом чёрных:",
+      all(re.match(r"\s*1\.\.\.", b["moves"]) for b in B if b["flip"]))
+print("ходы до решения законны:", best[0], "из", len(B))
+print("не сошлись:", [b["n"] for b in B if not legal(fen_of(b, lab, False), sans(b["moves"])) and not legal(fen_of(b, lab, True), sans(b["moves"]))])
 assert best[0] >= len(B) - len(EP)
 
 txt = "\n".join(doc[i].get_text() for i in ANS_PAGES)
+# запись ответа: «N.» отдельной строкой (или «N. 4.…» в строку), дальше ходы
 ans = {int(m.group(1)): " ".join(m.group(2).split()) for m in re.finditer(
-    r"(?m)^\s*(\d+)\.\s*\n?\s*(4\..*?)(?=^\s*\d+\.\s*(?:\n|4\.)|\Z)", txt, re.S)}
-assert sorted(ans) == list(range(1, 501))
+    r"(?m)^\s*(\d+)\.[ \t]*\n?\s*(\d+\..*?)(?=^\s*\d+\.[ \t]*(?:\n|\d+\.)|\Z)", txt, re.S)}
+assert sorted(ans) == list(range(1, NB + 1)), sorted(set(range(1, NB + 1)) - set(ans))
 
 out = []
 for b in B:
@@ -152,6 +180,8 @@ for b in B:
             r.append([mv.uci(), san, bd.fen()])
         return r
 
-    out.append({"n": b["n"], "f": f0, "s": "w", "pre": run(sans(b["moves"])), "m": run(sans(ans[b["n"]]))})
+    pre = run(sans(b["moves"]))
+    # s — сторона, которая решает: ходит после разыгранных в уме ходов
+    out.append({"n": b["n"], "f": f0, "s": "w" if bd.turn else "b", "pre": pre, "m": run(sans(ans[b["n"]]))})
 json.dump(out, open(OUT, "w"), ensure_ascii=False, separators=(",", ":"))
 print("записано", len(out), "задач →", OUT)
