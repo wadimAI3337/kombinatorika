@@ -799,6 +799,7 @@ function show(v){
   ["Books","Group","Sections","List","Solve","Review","Open","Read"].forEach(n =>
     $("v" + n).classList.toggle("gone", n.toLowerCase() !== v));
   if (v !== "solve") document.body.classList.remove("zen");
+  document.body.classList.toggle("wide", v === "read");
   window.scrollTo(0, 0);
 }
 function gauge(){
