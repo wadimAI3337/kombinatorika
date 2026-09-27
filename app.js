@@ -145,6 +145,7 @@ const fenSide = f => f.split(" ")[1];
 /* «6...», «5.» — ход, с которого начинается решение */
 const mindNext = p => { const f = p.pre[p.pre.length - 1][2]; return fenNum(f) + (fenSide(f) === "w" ? "." : "..."); };
 const isMind = () => book && book.kind === "mind";
+const posLike = () => book && (book.kind === "pos" || book.kind === "dvor");
 /* вслепую: доска ещё не должна выдавать позицию после ходов из условия */
 const mindBlind = () => isMind() && st && !st.done && !st.peek && !st.an;
 
@@ -202,10 +203,10 @@ function drawArrow(){
 }
 /* правая колонка сборника «Позиционная игра» */
 function renderPos(){
-  const on = book.kind === "pos";
+  const on = posLike();
   $("pTurnCard").classList.toggle("gone", !on);
   $("pNoteCard").classList.toggle("gone", !on);
-  $("pFullCard").classList.toggle("gone", !on);
+  $("pFullCard").classList.toggle("gone", !on || !(st && st.p && st.p.x));
   if (!on) return;
   const p = st.p;
   const myTurn = !st.done && st.step % 2 === 0;
@@ -531,6 +532,7 @@ function sfSetup(w, js){
 let eng = null, engState = "off", engSrcIdx = 0, anOver = "";
 let searching = false, searchFen = "", pendingFen = "";
 let anInfo = { depth: 0, pvs: [] };
+let engMPV = 0;
 
 function engStart(){
   if (eng || engState === "loading") return;
@@ -564,7 +566,7 @@ function engStart(){
         alive = true; settled = true; clearTimeout(timer);
         eng = w; engSrcIdx = i; engState = "on";
         sfSetup(w, js);
-        send("setoption name MultiPV value 3");
+        send("setoption name MultiPV value 3"); engMPV = 3;
         send("setoption name Hash value 64");
         send("ucinewgame"); searching = false; pendingFen = ""; anGo(); anRender();
       }
@@ -604,7 +606,7 @@ function engLine(s){
     return;
   }
   if (s.indexOf("info") !== 0 || s.indexOf(" pv ") < 0) return;
-  if (searchFen !== st.fen) return;                 /* ответ от прошлой позиции */
+  if (searchFen !== engFen()) return;               /* ответ от прошлой позиции */
   if (s.indexOf(" upperbound") >= 0 || s.indexOf(" lowerbound") >= 0) return;
   const d = +(s.match(/ depth (\d+)/) || [])[1] || 0;
   const mp = +(s.match(/ multipv (\d+)/) || [])[1] || 1;
@@ -617,6 +619,8 @@ function engLine(s){
 }
 function startSearch(fen){
   if (!eng) return;
+  const want = view === "read" && rd ? rdLines : 3;
+  if (want !== engMPV){ send("setoption name MultiPV value " + want); engMPV = want; }
   searchFen = fen; searching = true;
   anInfo = { depth: 0, pvs: [] };
   anStage = { depth: 0, pvs: [] };
@@ -648,7 +652,8 @@ function anSync(){
   anGo();
 }
 function anGo(){
-  if (!st.an) return;
+  if (view === "read" && rd){ rdEngGo(); return; }
+  if (!st || !st.an) return;
   anOver = anyLegal(st.fen) ? "" : (inCheckNow(st.fen) ? "мат" : "пат");
   anInfo = { depth: 0, pvs: [] };
   anStage = { depth: 0, pvs: [] };
@@ -675,20 +680,21 @@ function anPlay(from, to, promo){
 /* оценка глазами белых */
 function evalTxt(e){
   if (!e) return "—";
-  const white = st.fen.split(" ")[1] === "w";
+  const white = engFen().split(" ")[1] === "w";
   if (e.kind === "mate"){ const m = white ? e.val : -e.val; return "#" + (m > 0 ? "" : "-") + Math.abs(m); }
   const cp = (white ? e.val : -e.val) / 100;
   return (cp > 0 ? "+" : cp < 0 ? "−" : "") + Math.abs(cp).toFixed(2);
 }
 function evalPct(e){
   if (!e) return 50;
-  const white = st.fen.split(" ")[1] === "w";
+  const white = engFen().split(" ")[1] === "w";
   if (e.kind === "mate") return (white ? e.val : -e.val) > 0 ? 100 : 0;
   const cp = (white ? e.val : -e.val);
   return 50 + 50 * (2 / (1 + Math.exp(-0.0045 * cp)) - 1);
 }
 function anRenderEval(){
-  if (!st.an) return;
+  if (view === "read" && rd){ rdRenderEval(); return; }
+  if (!st || !st.an) return;
   const top = anInfo.pvs[0];
   $("anScore").textContent = anOver ? (anOver === "мат" ? "#" : "=") : engState === "on" ? evalTxt(top) : "—";
   $("evalFill").style.width = evalPct(top) + "%";
@@ -710,6 +716,8 @@ function anRenderEval(){
   });
 }
 function anRender(){
+  if (view === "read" && rd){ rdRenderEval(); return; }
+  if (!st) return;
   const on = !!st.an;
   ["pStarCard","pTurnCard","pNoteCard","pFullCard"].forEach(id => {
     const el = $(id); if (el && on) el.classList.add("gone");
@@ -786,9 +794,9 @@ let book = BOOKS[0], sec = null, filter = "all", page = 0, st = null, view = "bo
 const PER = 24;
 
 function show(v){
-  if (v !== "solve" && typeof eng !== "undefined" && eng){ pendingFen = ""; send("stop"); }
+  if (v !== "solve" && v !== "read" && typeof eng !== "undefined" && eng){ pendingFen = ""; send("stop"); }
   view = v;
-  ["Books","Sections","List","Solve","Review","Open"].forEach(n =>
+  ["Books","Group","Sections","List","Solve","Review","Open","Read"].forEach(n =>
     $("v" + n).classList.toggle("gone", n.toLowerCase() !== v));
   if (v !== "solve") document.body.classList.remove("zen");
   window.scrollTo(0, 0);
@@ -805,7 +813,34 @@ const statusPill = (r, n) => r.solved
 
 function renderBooks(){
   const host = $("books"); host.innerHTML = "";
-  for (const b of BOOKS){
+  for (const g of GROUPS){
+    const list = BOOKS.filter(b => groupOf(b) === g.id);
+    const all = list.reduce((a, b) => a.concat(b.puzzles), []);
+    const el = document.createElement("button");
+    el.className = "book";
+    const done = list.reduce((a, b) => a + starsIn(b.id, b.puzzles), 0);
+    const pct = all.length ? Math.round(100 * done / maxStars(all)) : 0;
+    const count = g.id === "prophy" && !list.length
+      ? (dvorState === "fail" ? "не загрузилось — обнови страницу" : "загружается…")
+      : list.length + " " + wordBook(list.length) + " · " + all.length + " задач";
+    el.innerHTML =
+      `<div class="thumb gthumb"><div class="gring"><svg viewBox="0 0 100 100"><use href="#pc-${g.pc}"/></svg></div></div>` +
+      `<div class="body"><h3>${g.title}</h3><p class="meta">${g.meta}</p><p class="meta">${count}</p>` +
+      `<div class="prog"><div class="bar"><i style="width:${pct}%"></i></div>` +
+      `<b>${starOne()} ${done} / ${maxStars(all)}</b></div></div>`;
+    el.onclick = () => { grp = g; renderGroup(); show("group"); };
+    host.appendChild(el);
+  }
+  gauge();
+}
+function renderGroup(){
+  const host = $("gbooks"); host.innerHTML = "";
+  $("gTitle").textContent = grp.title;
+  $("gSub").textContent = grp.meta;
+  const list = BOOKS.filter(b => groupOf(b) === grp.id);
+  if (!list.length) host.innerHTML = '<p style="color:var(--ink-3)">' +
+    (dvorState === "fail" ? "Книги не загрузились — проверь интернет и обнови страницу." : "Книги загружаются…") + "</p>";
+  for (const b of list){
     const done = starsIn(b.id, b.puzzles), got = solvedIn(b.id, b.puzzles);
     const pct = Math.round(100 * done / maxStars(b.puzzles));
     const face = b.puzzles.find(p => !rec(b.id, p.n).solved) || b.puzzles[0];
@@ -822,8 +857,20 @@ function renderBooks(){
   }
   gauge();
 }
+const wordBook = n => (n % 10 === 1 && n % 100 !== 11) ? "книга"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "книги" : "книг";
 
 function renderSections(){
+  grp = GROUPS.find(g => g.id === groupOf(book)) || grp;
+  document.querySelectorAll(".gcrumb").forEach(el => el.textContent = grp.title);
+  const ih = $("intros"); ih.innerHTML = "";
+  (book.intros || []).forEach((it, k) => {
+    const el = document.createElement("button");
+    el.className = "introbar";
+    el.innerHTML = `<span class="ib">📖</span><span><h3>${it.t}</h3><p>${it.s}</p></span><span class="go">Читать →</span>`;
+    el.onclick = () => rdOpenIntro(book, k);
+    ih.appendChild(el);
+  });
   $("bTitle").textContent = book.title;
   $("bSub").textContent = book.meta + " · решено " +
     solvedIn(book.id, book.puzzles) + " из " + book.puzzles.length +
@@ -876,10 +923,10 @@ function renderList(){
       `<div class="thumb">${mini(p.f, p.s === "b")}</div>` +
       `<div class="rb">${statusPill(r, p.n) || '<span class="pill">не решена</span>'}` +
       `<span class="num">Задача №${p.n}</span>` +
-      (book.kind === "pos" ? `<span class="game">${p.t || "Позиция №" + p.n}</span>` : "") +
+      (posLike() ? `<span class="game">${p.t || "Позиция №" + p.n}</span>` : "") +
       `<span class="who">${p.s === "w" ? "Ход белых" : "Ход чёрных"}${p.tt
         ? " · тест №" + p.tt + " · " + p.pts + " " + wordPts(p.pts)
-        : (book.kind === "pos" ? " · ход " + p.v : " · " + plies(p) + " " + wordMoves(plies(p)))}</span>` +
+        : (posLike() ? " · ход " + p.v : " · " + plies(p) + " " + wordMoves(plies(p)))}</span>` +
       `<span class="open">Открыть задачу →</span></div>`;
     el.onclick = () => openPuzzle(p);
     host.appendChild(el);
@@ -897,6 +944,7 @@ function renderList(){
 }
 
 function openPuzzle(p){
+  if (p.dv && !p.m.length){ rdOpenAnswer(p); return; }
   /* в «уме» решаем в позиции после ходов из условия, а на доске — диаграмма */
   const f = p.pre ? p.pre[p.pre.length - 1][2] : p.f;
   st = { p, fen: f, step: 0, done: false, hinted: false, sel: null,
@@ -907,8 +955,10 @@ function openPuzzle(p){
   if (isMind()) setState("", "Разыграй ходы в уме и найди " + mindNext(p),
     "На доске — позиция до этих ходов, фигуры не двигаются. Кликни поле, откуда ходит фигура " +
     "в позиции после них, потом — куда.");
-  else setState("", book.kind === "pos" ? "Найди лучший план" : "Найди сильнейший ход",
-    book.kind === "pos"
+  else if (p.dv) setState("", p.cap || "Найди сильнейшее продолжение",
+    "Помни о сопернике: прежде чем ходить, проверь его лучший ответ. Ход — на доске.");
+  else setState("", posLike() ? "Найди лучший план" : "Найди сильнейший ход",
+    posLike()
       ? "Оцени структуру и слабые поля, потом сделай ход на доске."
       : "Тяни фигуру мышкой или кликни по ней, потом по полю.");
   renderSolve();
@@ -946,12 +996,14 @@ function renderSolve(){
   }
   const r = rec(book.id, p.n);
   $("pTitle").textContent = "Задача №" + p.n;
-  $("pMeta").textContent = book.kind === "pos"
+  $("pMeta").textContent = book.kind === "dvor"
+    ? [p.t, p.ev, p.cap].filter(Boolean).join(" · ")
+    : posLike()
     ? (p.tt ? p.t + " · тест №" + p.tt + " · " + p.pts + " " + wordPts(p.pts) : p.t)
     : book.title + " · " + sec.t;
   $("pDot").className = "dot " + p.s;
   $("pWho").textContent = p.s === "w" ? "Ход белых" : "Ход чёрных";
-  $("pStatus").innerHTML = statusPill(r, p.n) || (book.kind === "pos"
+  $("pStatus").innerHTML = statusPill(r, p.n) || (posLike()
     ? `<span class="pill">${plies(p)} ${wordMv(plies(p))} за ${p.s === "w" ? "белых" : "чёрных"}${
         p.tt ? "" : " · ход " + p.v}</span>`
     : `<span class="pill">${p.pre ? "решение в " : ""}${plies(p)} ${wordMoves(plies(p))}${isMate(p) ? " · с матом" : ""}</span>`);
@@ -974,7 +1026,7 @@ function renderSolve(){
     const side = (p.s === "w") === (i % 2 === 0) ? "w" : "b";
     if (side === "w" || i === 0){
       const off = p.s === "b" ? 1 : 0;
-      const base = book.kind === "pos" ? p.v : p.pre ? fenNum(p.pre[p.pre.length - 1][2]) : 1;
+      const base = posLike() ? p.v : p.pre ? fenNum(p.pre[p.pre.length - 1][2]) : 1;
       const n = document.createElement("span"); n.className = "mv num";
       n.textContent = (Math.floor((i + off) / 2) + base) + (side === "w" ? "." : "...");
       mv.appendChild(n);
@@ -986,6 +1038,8 @@ function renderSolve(){
     mv.appendChild(e);
   });
   $("btnExit").classList.toggle("gone", !document.body.classList.contains("zen"));
+  $("btnBook").classList.toggle("gone", !(p.dv || p.x));
+  $("btnBook2").classList.toggle("gone", !(p.dv || p.x));
   $("btnPeek").classList.toggle("gone", !isMind() || st.done);
   $("btnPeek").textContent = st.peek ? "Спрятать позицию" : "Показать позицию";
   bindBoard(); fitBoard(); drawArrow(); renderPos(); renderStars(); anRender();
@@ -1025,7 +1079,7 @@ function attempt(from, to){
     const reply = curLine()[st.step];
     if (!reply){ finish(); renderSolve(); return; }
     setState("good", "Верно — " + figurine(need[1], st.p.s),
-      book.kind === "pos" ? "Смотри комментарий и играй вариант дальше." : "Соперник отвечает…");
+      posLike() ? "Смотри комментарий и играй вариант дальше." : "Соперник отвечает…");
     renderSolve();
     setTimeout(() => {
       st.fen = reply[2];
@@ -1035,15 +1089,15 @@ function attempt(from, to){
       else if (isMind()) setState("good", "Соперник ответил " +
         figurine(reply[1], st.p.s === "w" ? "b" : "w"),
         "Доска прежняя — держи позицию в голове и найди следующий ход.");
-      else setState("good", "Верно. Продолжай", book.kind === "pos"
+      else setState("good", "Верно. Продолжай", posLike()
         ? "Основной вариант ещё не доигран." : "Комбинация ещё не доиграна.");
       renderSolve();
-    }, book.kind === "pos" ? 1100 : 600);
+    }, posLike() ? 1100 : 600);
   } else {
     st.errs++;
     const r = rec(book.id, st.p.n); r.errs = (r.errs || 0) + 1; saveProg();
     st.err = to;
-    setState("bad", "Не этот ход", book.kind === "pos"
+    setState("bad", "Не этот ход", posLike()
       ? "Ищи ход, который улучшает позицию надолго: пешечный подрыв, поле для коня, размен."
       : "Решение рядом — посмотри форсированные продолжения.");
     renderSolve();
@@ -1060,9 +1114,9 @@ function finish(){
   r.stars = Math.max(r.stars || 0, st.got);
   saveProg();
   if (autoAn) setTimeout(() => { if (st && st.done && !st.an) anOpen(); }, 1200);
-  setState("good", book.kind === "pos" ? "Задача пройдена" : "Задача решена",
+  setState("good", posLike() ? "Задача пройдена" : "Задача решена",
     st.hinted ? "С подсказкой — стоит вернуться к ней позже."
-              : (book.kind === "pos" ? "Основной вариант доигран до конца." : "Комбинация сыграна до конца."));
+              : (posLike() ? "Основной вариант доигран до конца." : "Комбинация сыграна до конца."));
   if (st.p.ab) setState("good", "Задача решена", " " + st.p.ab[st.alt ? 1 : 0]);
   gauge();
 }
@@ -1188,6 +1242,8 @@ $("btnPeek").onclick = () => {
   renderSolve();
 };
 $("btnAnalyse").onclick = anOpen;
+$("btnBook").onclick = () => st.p.dv ? rdOpenAnswer(st.p) : rdOpenNotes(st.p);
+$("btnBook2").onclick = () => st.p.dv ? rdOpenAnswer(st.p) : rdOpenNotes(st.p);
 $("anAuto").checked = autoAn;
 $("anAuto").onchange = () => { autoAn = $("anAuto").checked;
   try { localStorage.setItem("kombi-autoan", autoAn ? "1" : "0"); } catch(e) {} };
@@ -1215,6 +1271,7 @@ $("home").onclick = () => { renderBooks(); show("books"); };
 document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
   const g = b.dataset.go;
   if (g === "books"){ renderBooks(); show("books"); }
+  if (g === "group"){ renderGroup(); show("group"); }
   if (g === "sections"){ renderSections(); show("sections"); }
   if (g === "list"){ renderList(); show("list"); }
 });
@@ -1222,6 +1279,11 @@ document.querySelectorAll(".filters button").forEach(b =>
   b.onclick = () => { filter = b.dataset.f; page = 0; renderList(); });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && document.body.classList.contains("zen")) toggleZen(false);
+  if (view === "read" && rd && !/INPUT|TEXTAREA/.test((e.target || {}).tagName || "")){
+    if (e.key === "ArrowLeft"){ rdStep(-1); e.preventDefault(); }
+    if (e.key === "ArrowRight"){ rdStep(1); e.preventDefault(); }
+    return;
+  }
   if (view === "solve" && st && st.an){
     if (e.key === "ArrowLeft"){ anJump(st.an.i - 1); e.preventDefault(); }
     if (e.key === "ArrowRight"){ anJump(st.an.i + 1); e.preventDefault(); }
@@ -1239,6 +1301,345 @@ $("themeBtn").onclick = () => {
   root.setAttribute("data-theme", next);
   try { localStorage.setItem("kombi-theme", next); } catch(e) {}
 };
+
+/* ===== Блоки на главной: тактика, стратегия, профилактика ===== */
+const GROUPS = [
+  { id:"tactics",  title:"Тактика",      meta:"Комбинации, тесты по тактике, ходы в уме",      pc:"N" },
+  { id:"strategy", title:"Стратегия",    meta:"Позиционная игра · шесть уровней",              pc:"R" },
+  { id:"prophy",   title:"Профилактика", meta:"Книги / Профилактика · введение и упражнения", pc:"K" },
+];
+const groupOf = b => b.group || (/^pos\d/.test(b.id) ? "strategy" : "tactics");
+let grp = GROUPS[0];
+
+/* ===== Книги с введением (dvor.js): том -> части -> введение + упражнения =====
+   В dvor.js у каждой части дерево ходов: корни (FEN диаграмм) и узлы
+   [родитель, uci, san, главная линия]. Родитель < 0 — корень -(k+1).
+   FEN узлов считаем здесь, при загрузке. Текст — блоки, где ход — это
+   ссылка на узел: {m: id, s: как в книге, b: жирный, w: ход словами}. */
+let dvorState = "idle", dvorBuilt = false;
+const niceTitle = t => t.charAt(0) + t.slice(1).toLowerCase();
+const segText = segs => (segs || []).map(x => typeof x === "string" ? x : x.s).join("");
+function mkTree(pt){
+  pt.fen = new Array(pt.nodes.length).fill(null);
+  pt.fenOf = id => id == null ? null : id < 0 ? pt.roots[-id - 1] : pt.fen[id];
+  pt.kids = {};
+  pt.nodes.forEach((n, i) => {
+    const pf = pt.fenOf(n[0]);
+    if (pf){ const mv = makeMove(pf, n[1].slice(0, 2), n[1].slice(2, 4), n[1][4]); if (mv) pt.fen[i] = mv.fen; }
+    (pt.kids[n[0]] = pt.kids[n[0]] || []).push(i);
+  });
+  return pt;
+}
+const scriptVer = () => { const t = document.querySelector('script[src*="auth.js"]'), m = t && /[?&]v=([^&]+)/.exec(t.src); return m ? "?v=" + m[1] : ""; };
+function loadScript(src, ok, bad){
+  const s = document.createElement("script");
+  s.src = src + scriptVer(); s.async = true; s.onload = ok; s.onerror = bad;
+  document.head.appendChild(s);
+}
+function dvorBuild(){
+  if (dvorBuilt || !window.DVOR) return;
+  dvorBuilt = true;
+  for (const vol of window.DVOR){
+    const puzzles = [], secs = [], intros = [];
+    if (vol.pre && vol.pre.length)
+      intros.push({ t:"Предисловие", s:"От автора · условные обозначения", pre:vol.pre });
+    vol.parts.forEach((pt, pi) => {
+      mkTree(pt);
+      const title = niceTitle(pt.title);
+      intros.push({ t:"Введение", s:title + " · разобранные примеры, ходы кликаются", part:pi, here:"Введение · " + title });
+      const items = [];
+      for (const e of pt.ex){
+        const f = pt.fenOf(e.root);
+        if (!f) continue;
+        let m = e.main.map(id => [pt.nodes[id][1], pt.nodes[id][2], pt.fen[id]]).filter(x => x[2]);
+        if (m.length % 2 === 0) m = m.slice(0, -1);          /* кончаем ходом решающей стороны */
+        const [who, ev] = (e.g || "").split(" | ");
+        const p = { n:e.n, f, s:f.split(" ")[1], v:+(f.split(" ")[5] || 1), m, t:who || "Позиция " + e.n,
+                    ev:ev || "", cap:segText((e.a[0] && e.a[0].t === "c") ? e.a[0].s : null), x:"",
+                    dv:{ pt, ex:e } };
+        puzzles.push(p); items.push(p);
+      }
+      const per = 30;
+      for (let i = 0; i < items.length; i += per){
+        const chunk = items.slice(i, i + per);
+        const set = new Set(chunk);
+        secs.push({ id:vol.id + "p" + pi + "s" + i,
+          t:"Упражнения " + chunk[0].n + " – " + chunk[chunk.length - 1].n,
+          s:title, f:p => set.has(p), items:chunk });
+      }
+    });
+    BOOKS.push({ id:vol.id, kind:"dvor", group:"prophy", title:vol.title,
+      meta:"Профилактика · " + vol.parts.map(p => niceTitle(p.title)).join(", ") + " · " + puzzles.length + " упражнений",
+      puzzles, secs, intros, vol });
+  }
+}
+(function dvorLoad(){
+  dvorState = "loading";
+  loadScript("dvor.js", () => {
+    dvorState = "ok"; dvorBuild();
+    if (view === "books") renderBooks();
+    if (view === "group") renderGroup();
+    gauge();
+  }, () => { dvorState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
+})();
+
+/* ===== Читалка: доска + Stockfish слева, текст с кликабельными ходами справа =====
+   rd.cur — узел книги, на котором стоим; rd.free — свои ходы поверх него
+   (временная ветка: клик по любому ходу книги её сбрасывает). */
+let rd = null;
+let rdLines = 3;
+try { rdLines = +localStorage.getItem("kombi-rdlines") || 3; } catch(e) {}
+const FIGS = { K:"♔", Q:"♕", R:"♖", B:"♗", N:"♘" };
+const bookMv = t => esc(t).replace(/(^|[^A-Za-z])([KQRBN])(?=[a-h1-8:x])/g, (m0, a, p) => a + '<span class="fg">' + FIGS[p] + "</span>");
+function rdSegs(segs){
+  return (segs || []).map(x => typeof x === "string" ? esc(x)
+    : `<button class="bm${x.b ? " main" : ""}${x.w ? " word" : ""}" data-n="${x.m}">${x.w ? esc(x.s) : bookMv(x.s)}</button>`).join("");
+}
+function rdHtml(blocks, pt){
+  let h = "";
+  for (const b of blocks){
+    if (b.t === "h") h += `<h3 class="rdh">${esc(niceTitle(b.x))}</h3>`;
+    else if (b.t === "g"){ const [a, c] = b.x.split(" | "); h += `<div class="rdgame">${esc(a)}${c ? "<span>" + esc(c) + "</span>" : ""}</div>`; }
+    else if (b.t === "c") h += `<p class="rdcap">${rdSegs(b.s)}</p>`;
+    else if (b.t === "p") h += `<p>${b.s ? rdSegs(b.s) : esc(b.x || "")}</p>`;
+    else if (b.t === "d" && b.n != null && pt){
+      const f = pt.fenOf(b.n);
+      if (f) h += `<button class="rddiag${b.small ? " small" : ""}" data-n="${b.n}" title="Поставить на доску">${mini(f, false)}</button>`;
+    }
+  }
+  return h;
+}
+function rdOpen(state, html){
+  rd = Object.assign({ cur:null, free:[], sel:null, flip:false, el:null }, state);
+  $("rdCrumbBook").textContent = rd.b.title;
+  $("rdCrumbHere").textContent = rd.here;
+  grp = GROUPS.find(g => g.id === groupOf(rd.b)) || grp;
+  document.querySelectorAll(".gcrumb").forEach(el => el.textContent = grp.title);
+  $("rdText").innerHTML = html;
+  $("rdText").scrollTop = 0;
+  $("rdSolve").classList.toggle("gone", !(rd.p && rd.p.m.length));
+  document.querySelectorAll("#rdLinesSeg button").forEach(x => x.setAttribute("aria-pressed", String(+x.dataset.l === rdLines)));
+  show("read");
+  const first = $("rdText").querySelector(".rddiag, .bm");
+  if (rd.start != null) rdGo(rd.start, $("rdText").querySelector(`.rddiag[data-n="${rd.start}"]`), true);
+  else if (first) rdGo(+first.dataset.n, first.classList.contains("rddiag") ? first : null, true);
+  else rdPaint();
+  if (engState !== "on") engStart(); else rdEngGo();
+}
+function rdOpenIntro(b, k){
+  const it = b.intros[k];
+  if (it.pre){
+    rdOpen({ b, pt:null, here:it.t }, rdHtml(it.pre.map(x => x.t === "h" ? { t:"h", x:x.x } : { t:"p", x:x.x }), null));
+    return;
+  }
+  const pt = b.vol.parts[it.part];
+  rdOpen({ b, pt, here:it.here || it.t }, `<h3 class="rdh">${esc(niceTitle(pt.title))}</h3>` + rdHtml(pt.intro, pt));
+}
+function rdOpenAnswer(p){
+  const pt = p.dv.pt, e = p.dv.ex;
+  const head = `<div class="rdhead"><h2>Упражнение ${esc(p.n)}</h2><p>${esc([p.t, p.ev].filter(Boolean).join(" · "))}</p></div>` +
+    `<button class="rddiag" data-n="${e.root}" title="Исходная позиция">${mini(p.f, false)}</button>`;
+  rdOpen({ b:book, pt, p, here:"Упражнение " + p.n, start:e.root, flip:p.s === "b" }, head + rdHtml(e.a, pt));
+}
+let notesState = "idle";
+function rdOpenNotes(p){
+  const go = () => {
+    const d = window.NOTES && NOTES[book.id] && NOTES[book.id][p.n];
+    const pt = mkTree({ roots:[p.f], nodes:d ? d[1].map(n => [n[0], n[1], n[2], 0]) : [] });
+    const segs = []; let pos = 0;
+    for (const [a, b, m] of (d ? d[0] : [])){
+      if (a > pos) segs.push(p.x.slice(pos, a));
+      segs.push({ m, s:p.x.slice(a, b) }); pos = b;
+    }
+    if (pos < p.x.length) segs.push(p.x.slice(pos));
+    const head = `<div class="rdhead"><h2>Задача №${esc(String(p.n))}</h2><p>${esc(p.t || book.title)}</p></div>` +
+      `<button class="rddiag" data-n="-1" title="Исходная позиция">${mini(p.f, false)}</button>`;
+    rdOpen({ b:book, pt, p, here:"Задача №" + p.n, start:-1, flip:p.s === "b" }, head + rdHtml([{ t:"p", s:segs }], pt));
+  };
+  if (window.NOTES) return go();
+  if (notesState === "loading") return;
+  notesState = "loading";
+  loadScript("notes.js", () => { notesState = "ok"; go(); }, () => { notesState = "idle"; go(); });
+}
+const rdFen = () => {
+  if (!rd) return "";
+  if (rd.free.length) return rd.free[rd.free.length - 1].fen;
+  return (rd.pt && rd.pt.fenOf(rd.cur)) || (rd.pt && rd.pt.roots[0]) ||
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+};
+const engFen = () => view === "read" && rd ? rdFen() : (st ? st.fen : "");
+function rdGo(n, el, keepScroll){
+  if (!rd.pt || rd.pt.fenOf(n) == null) return;
+  rd.cur = n; rd.free = []; rd.sel = null;
+  const all = $("rdText").querySelectorAll(`[data-n="${n}"]`);
+  rd.el = el || (rd.el && rd.el.dataset.n == n ? rd.el : all[0]) || null;
+  $("rdText").querySelectorAll(".cur").forEach(x => x.classList.remove("cur"));
+  if (rd.el) rd.el.classList.add("cur");
+  if (rd.el && !keepScroll){
+    const box = $("rdText"), r = rd.el.getBoundingClientRect(), br = box.getBoundingClientRect();
+    if (box.scrollHeight > box.clientHeight + 4){
+      if (r.top < br.top + 40 || r.bottom > br.bottom - 40) box.scrollTop += r.top - br.top - box.clientHeight / 3;
+    } else if (r.top < 70 || r.bottom > innerHeight - 20) rd.el.scrollIntoView({ block:"center", behavior:"smooth" });
+  }
+  rdPaint(); rdEngGo();
+}
+/* ▶ — следующий ход по тексту; ◀ — ход назад по дереву */
+function rdStep(d){
+  if (!rd) return;
+  if (d < 0 && rd.free.length){ rd.free.pop(); rd.sel = null; rdPaint(); rdEngGo(); return; }
+  const items = [...$("rdText").querySelectorAll(".bm, .rddiag")];
+  if (d > 0){
+    const i = rd.el ? items.indexOf(rd.el) : -1;
+    const nx = items.slice(i + 1).find(x => x.classList.contains("bm"));
+    if (nx) rdGo(+nx.dataset.n, nx);
+    return;
+  }
+  if (rd.cur == null || rd.cur < 0) return;
+  const par = rd.pt.nodes[rd.cur][0];
+  const i = rd.el ? items.indexOf(rd.el) : items.length;
+  const back = items.slice(0, i).reverse().find(x => +x.dataset.n === par);
+  rdGo(par, back || null);
+}
+function rdEdge(d){
+  if (!rd || !rd.pt || rd.cur == null) return;
+  if (d < 0){ let n = rd.cur; while (n >= 0) n = rd.pt.nodes[n][0]; rdGo(n, null); return; }
+  let n = rd.cur;
+  for (;;){
+    const k = rd.pt.kids[n];
+    if (!k || !k.length) break;
+    n = k.find(i => rd.pt.nodes[i][3]) ?? k[0];
+  }
+  rdGo(n, null);
+}
+function rdPaint(){
+  const fen = rdFen(), pos = parseFen(fen), host = $("rdBoard");
+  const last = rd.free.length ? rd.free[rd.free.length - 1].uci
+    : (rd.pt && rd.cur != null && rd.cur >= 0 ? rd.pt.nodes[rd.cur][1] : "");
+  const dests = rd.sel ? legalTargets(fen, rd.sel) : [];
+  host.innerHTML = "";
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++){
+    const rank = rd.flip ? r + 1 : 8 - r, file = rd.flip ? FILES[7 - f] : FILES[f], name = file + rank;
+    const d = document.createElement("div");
+    d.className = "sq" + ((r + f) % 2 ? " dk" : "");
+    d.dataset.sq = name;
+    if (rd.sel === name) d.classList.add("sel");
+    if (dests.indexOf(name) >= 0){ d.classList.add("dest"); if (pos[name]) d.classList.add("cap"); }
+    if (last && (last.slice(0, 2) === name || last.slice(2, 4) === name)) d.classList.add("last");
+    d.insertAdjacentHTML("beforeend", '<span class="mark"></span>');
+    if (pos[name]) d.insertAdjacentHTML("beforeend", `<svg class="pc" viewBox="0 0 100 100"><use href="#pc-${pos[name]}"/></svg>`);
+    if (r === 7) d.insertAdjacentHTML("beforeend", `<span class="coord f">${file}</span>`);
+    if (f === 0) d.insertAdjacentHTML("beforeend", `<span class="coord r">${rank}</span>`);
+    host.appendChild(d);
+  }
+  const parts = fen.split(" ");
+  $("rdWhere").textContent = (parts[1] === "w" ? "Ход белых" : "Ход чёрных") + " · " + parts[5] + "-й ход";
+  const fr = $("rdFree");
+  fr.classList.toggle("gone", !rd.free.length);
+  if (rd.free.length){
+    const base = rd.free.length ? (rd.free[0].prev) : fen;
+    fr.innerHTML = "<b>Свой вариант:</b> " + pvToSan(base, rd.free.map(x => x.uci), 40) +
+      '<button id="rdFreeX" title="Вернуться к позиции из книги">↺ к книге</button>';
+    $("rdFreeX").onclick = () => { rd.free = []; rd.sel = null; rdPaint(); rdEngGo(); };
+  }
+}
+/* свой ход на доске: если такой ход есть в книге — идём по книге */
+function rdPlay(from, to){
+  const fen = rdFen();
+  const pc = parseFen(fen)[from] || "";
+  const promo = pc.toLowerCase() === "p" && /[18]$/.test(to) ? "q" : undefined;
+  const mv = makeMove(fen, from, to, promo);
+  rd.sel = null;
+  if (!mv){ rdPaint(); return; }
+  if (!rd.free.length && rd.pt && rd.cur != null){
+    const k = (rd.pt.kids[rd.cur] || []).find(i => rd.pt.nodes[i][1].slice(0, 4) === mv.uci.slice(0, 4));
+    if (k != null){
+      const items = [...$("rdText").querySelectorAll(`[data-n="${k}"]`)];
+      const after = rd.el ? items.find(x => rd.el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING) : null;
+      rdGo(k, after || items[0] || null);
+      return;
+    }
+  }
+  rd.free.push({ fen:mv.fen, uci:mv.uci, san:mv.san, prev:fen });
+  rdPaint(); rdEngGo();
+}
+(function bindRd(){
+  const host = $("rdBoard");
+  let down = null;
+  const onSq = sq => {
+    if (!rd) return;
+    const fen = rdFen();
+    if (rd.sel && legalTargets(fen, rd.sel).indexOf(sq) >= 0){ rdPlay(rd.sel, sq); return true; }
+    const pc = parseFen(fen)[sq];
+    rd.sel = (pc && isW(pc) === (fen.split(" ")[1] === "w")) ? sq : null;
+    rdPaint();
+  };
+  host.addEventListener("pointerdown", e => {
+    const el = e.target.closest(".sq"); if (!el) return;
+    e.preventDefault(); down = el.dataset.sq; onSq(down);
+  });
+  host.addEventListener("pointerup", e => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const sq = el && el.closest && el.closest(".sq");
+    if (sq && down && sq.dataset.sq !== down && rd && rd.sel === down) onSq(sq.dataset.sq);
+    down = null;
+  });
+  host.addEventListener("contextmenu", e => e.preventDefault());
+  $("rdText").addEventListener("click", e => {
+    const b = e.target.closest(".bm, .rddiag");
+    if (b && rd) rdGo(+b.dataset.n, b, true);
+  });
+  $("rdPrev").onclick = () => rdStep(-1);
+  $("rdNext").onclick = () => rdStep(1);
+  $("rdFirst").onclick = () => rdEdge(-1);
+  $("rdLast").onclick = () => rdEdge(1);
+  $("rdFlip").onclick = () => { rd.flip = !rd.flip; rdPaint(); rdRenderEval(); };
+  $("rdSolve").onclick = () => { if (rd && rd.p){ book = rd.b; sec = book.secs.find(s => s.items.includes(rd.p)) || sec; openPuzzle(rd.p); } };
+  $("rdEngBtn").onclick = () => { if (engState === "on") engStop(); else engStart(); rdRenderEval(); };
+  document.querySelectorAll("#rdLinesSeg button").forEach(b => b.onclick = () => {
+    rdLines = +b.dataset.l;
+    try { localStorage.setItem("kombi-rdlines", String(rdLines)); } catch(e) {}
+    document.querySelectorAll("#rdLinesSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    rdEngGo();
+  });
+})();
+function rdEngGo(){
+  if (!rd || view !== "read") return;
+  const f = rdFen();
+  anOver = anyLegal(f) ? "" : (inCheckNow(f) ? "мат" : "пат");
+  anInfo = { depth: 0, pvs: [] };
+  anStage = { depth: 0, pvs: [] };
+  if (!eng || anOver){ if (eng && searching){ pendingFen = ""; send("stop"); } rdRenderEval(); return; }
+  if (searching){ pendingFen = f; send("stop"); }
+  else startSearch(f);
+  rdRenderEval();
+}
+function rdRenderEval(){
+  if (!rd) return;
+  const f = rdFen(), top = anInfo.pvs[0];
+  $("rdEngBtn").textContent = engState === "on" ? "Выключить движок" : engState === "loading" ? "Загрузка…" : "Включить движок";
+  $("rdScore").textContent = anOver ? (anOver === "мат" ? "#" : "=") : engState === "on" ? evalTxt(top) : "—";
+  $("rdDepth").textContent =
+    anOver ? (anOver === "мат" ? "мат" : "пат — ничья") :
+    engState === "loading" ? "Stockfish 19 загружается…" :
+    engState === "fail" ? "движок не загрузился — нужен интернет" :
+    engState === "off" ? "движок выключен" :
+    anInfo.depth ? "Stockfish 19 · глубина " + anInfo.depth : "Stockfish 19 · считает…";
+  const pct = anOver === "мат" ? (f.split(" ")[1] === "w" ? 0 : 100) : evalPct(engState === "on" ? top : null);
+  const bar = $("rdEbar");
+  bar.querySelector("i").style.height = (rd.flip ? 100 - pct : pct) + "%";
+  bar.style.transform = rd.flip ? "scaleY(-1)" : "";
+  const host = $("rdLines"); host.innerHTML = "";
+  if (engState !== "on" || anOver) return;
+  anInfo.pvs.slice(0, rdLines).forEach(e => {
+    if (!e) return;
+    const el = document.createElement("button");
+    el.className = "anline";
+    el.innerHTML = `<b>${evalTxt(e)}</b><span>${pvToSan(f, e.pv, 14)}</span>`;
+    el.onclick = () => { const u = e.pv[0]; if (u && u.length >= 4) rdPlay(u.slice(0, 2), u.slice(2, 4)); };
+    host.appendChild(el);
+  });
+}
+
 
 renderBooks();
 show("books");
