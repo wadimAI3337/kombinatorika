@@ -1412,6 +1412,7 @@ function rdHtml(blocks, pt){
 }
 function rdOpen(state, html){
   rd = Object.assign({ cur:null, free:[], sel:null, flip:false, el:null }, state);
+  document.documentElement.style.setProperty("--rdl", rdLines);
   $("rdCrumbBook").textContent = rd.b.title;
   $("rdCrumbHere").textContent = rd.here;
   grp = GROUPS.find(g => g.id === groupOf(rd.b)) || grp;
@@ -1600,6 +1601,7 @@ function rdPlay(from, to){
     rdLines = +b.dataset.l;
     try { localStorage.setItem("kombi-rdlines", String(rdLines)); } catch(e) {}
     document.querySelectorAll("#rdLinesSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    document.documentElement.style.setProperty("--rdl", rdLines);
     rdEngGo();
   });
 })();
