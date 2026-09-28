@@ -821,8 +821,9 @@ function renderBooks(){
     el.className = "book";
     const done = list.reduce((a, b) => a + starsIn(b.id, b.puzzles), 0);
     const pct = all.length ? Math.round(100 * done / maxStars(all)) : 0;
-    const count = g.id === "prophy" && !list.length
-      ? (dvorState === "fail" ? "не загрузилось — обнови страницу" : "загружается…")
+    const st_ = g.id === "prophy" ? dvorState : g.id === "yusupov" ? yusState : "ok";
+    const count = (g.id === "prophy" || g.id === "yusupov") && !list.length
+      ? (st_ === "fail" ? "не загрузилось — обнови страницу" : "загружается…")
       : list.length + " " + wordBook(list.length) + " · " + all.length + " задач";
     el.innerHTML =
       `<div class="thumb gthumb"><div class="gring"><svg viewBox="0 0 100 100"><use href="#pc-${g.pc}"/></svg></div></div>` +
@@ -839,8 +840,9 @@ function renderGroup(){
   $("gTitle").textContent = grp.title;
   $("gSub").textContent = grp.meta;
   const list = BOOKS.filter(b => groupOf(b) === grp.id);
+  const st_ = grp.id === "yusupov" ? yusState : dvorState;
   if (!list.length) host.innerHTML = '<p style="color:var(--ink-3)">' +
-    (dvorState === "fail" ? "Книги не загрузились — проверь интернет и обнови страницу." : "Книги загружаются…") + "</p>";
+    (st_ === "fail" ? "Книги не загрузились — проверь интернет и обнови страницу." : "Книги загружаются…") + "</p>";
   for (const b of list){
     const done = starsIn(b.id, b.puzzles), got = solvedIn(b.id, b.puzzles);
     const pct = Math.round(100 * done / maxStars(b.puzzles));
@@ -903,6 +905,14 @@ const visible = () => sec.items.filter(p =>
   filter === "all" ? true : filter === "done" ? rec(book.id, p.n).solved : !rec(book.id, p.n).solved);
 
 function renderList(){
+  const li = $("listIntro"); li.innerHTML = "";
+  if (sec.intro && sec.intro.length){
+    const el = document.createElement("button");
+    el.className = "introbar";
+    el.innerHTML = `<span class="ib">📖</span><span><h3>Введение</h3><p>${esc(sec.contents || "Разбор главной темы главы на примерах")}</p></span><span class="go">Читать →</span>`;
+    el.onclick = () => rdOpenChapter(book, sec);
+    li.appendChild(el);
+  }
   $("crumbBook").textContent = book.title;
   $("sTitle").textContent = sec.t;
   $("sSub").textContent = sec.s + " · решено " + solvedIn(book.id, sec.items) +
@@ -1308,6 +1318,7 @@ const GROUPS = [
   { id:"tactics",  title:"Тактика",      meta:"Комбинации, тесты по тактике, ходы в уме",      pc:"N" },
   { id:"strategy", title:"Стратегия",    meta:"Позиционная игра · шесть уровней",              pc:"R" },
   { id:"prophy",   title:"Профилактика", meta:"Книги / Профилактика · введение и упражнения", pc:"K" },
+  { id:"yusupov",  title:"Артур Юсупов", meta:"Книги · главы: введение и упражнения", pc:"Q" },
 ];
 const groupOf = b => b.group || (/^pos\d/.test(b.id) ? "strategy" : "tactics");
 let grp = GROUPS[0];
@@ -1383,6 +1394,64 @@ function dvorBuild(){
     gauge();
   }, () => { dvorState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
 })();
+
+/* ===== Книги Юсупова (yus.js): предисловие/введение сверху, главы =====
+   Глава = раздел: у раздела есть своё введение (sec.intro, sec.pt) —
+   оно показывается прямоугольником над упражнениями главы. */
+let yusState = "idle", yusBuilt = false;
+const YUS_PRE = { "Key to symbols used":"Условные обозначения", "Preface":"Предисловие", "Introduction":"Введение",
+                  "How to work with this book":"Введение" };
+function yusBuild(){
+  if (yusBuilt || !window.YUS) return;
+  yusBuilt = true;
+  for (const yb of window.YUS){
+    const puzzles = [], secs = [], intros = [];
+    for (const pr of yb.pre){
+      const t = YUS_PRE[pr.title] || pr.title;
+      const have = intros.find(x => x.t === t);
+      const blocks = [{ t:"h", x:pr.title === "How to work with this book" ? "Как работать с книгой" : t }].concat(pr.blocks);
+      if (have) have.pre = have.pre.concat(blocks);
+      else intros.push({ t, s:t === "Введение" ? "О чём книга и как по ней заниматься" : t === "Предисловие" ? "Несколько слов о книге"
+        : "Значки в ходах и оценках", pre:blocks });
+    }
+    intros.sort((a, b) => ["Предисловие", "Введение", "Условные обозначения"].indexOf(a.t) - ["Предисловие", "Введение", "Условные обозначения"].indexOf(b.t));
+    for (const ch of yb.chapters){
+      const pt = mkTree({ roots:ch.roots, nodes:ch.nodes });
+      const items = [];
+      for (const e of ch.ex){
+        const f = pt.fenOf(e.root);
+        if (!f) continue;
+        let m = e.main.map(id => [pt.nodes[id][1], pt.nodes[id][2], pt.fen[id]]).filter(x => x[2]);
+        if (m.length % 2 === 0) m = m.slice(0, -1);
+        const [who, ev] = (e.g || "").split(" | ");
+        const extra = [ev, e.stars ? "сложность " + "★".repeat(e.stars) : "", e.pts ? e.pts + " " + wordPts(e.pts) : "", e.from || ""];
+        const p = { n:e.n, f, s:f.split(" ")[1], v:+(f.split(" ")[5] || 1), m, t:who || "Упражнение " + e.n,
+                    ev:extra.filter(Boolean).join(" · "), cap:"", x:"", dv:{ pt, ex:e } };
+        puzzles.push(p); items.push(p);
+      }
+      if (!items.length && !ch.intro.length) continue;
+      const set = new Set(items);
+      secs.push({ id:yb.id + "c" + ch.n, t:ch.final ? "Итоговый тест" : "Глава " + ch.n + ". " + ch.title,
+        s:ch.final ? "Задания из всех глав книги" : (ch.en || ""), f:p => set.has(p), items,
+        intro:ch.intro, pt, contents:ch.contents });
+    }
+    BOOKS.push({ id:yb.id, kind:"dvor", group:"yusupov", title:yb.title,
+      meta:"Артур Юсупов · " + yb.sub + " · " + puzzles.length + " упражнений", puzzles, secs, intros });
+  }
+}
+(function yusLoad(){
+  yusState = "loading";
+  loadScript("yus.js", () => {
+    yusState = "ok"; yusBuild();
+    if (view === "books") renderBooks();
+    if (view === "group") renderGroup();
+    gauge();
+  }, () => { yusState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
+})();
+function rdOpenChapter(b, s){
+  const head = `<h3 class="rdh">${esc(s.t)}</h3>` + (s.contents ? `<p class="rdcap">${esc(s.contents)}</p>` : "");
+  rdOpen({ b, pt:s.pt, here:"Введение · " + s.t }, head + rdHtml(s.intro, s.pt));
+}
 
 /* ===== Читалка: доска + Stockfish слева, текст с кликабельными ходами справа =====
    rd.cur — узел книги, на котором стоим; rd.free — свои ходы поверх него
