@@ -1539,37 +1539,66 @@ const rdFen = () => {
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 };
 const engFen = () => view === "read" && rd ? rdFen() : (st ? st.fen : "");
+/* элементы текста с ходами и диаграммами — в порядке чтения */
+const rdItems = () => [...$("rdText").querySelectorAll(".bm, .rddiag")];
+/* тот из элементов узла n, что ближе всего к месту, где мы сейчас в тексте
+   (dir < 0 — предпочитаем раньше, dir > 0 — позже): один и тот же ход
+   встречается в разных ветках, и прыгать к первому упоминанию нельзя */
+function rdNear(n, dir){
+  const items = rdItems(), at = rd.el ? items.indexOf(rd.el) : -1;
+  let best = null, bd = 1e9;
+  items.forEach((x, i) => {
+    if (+x.dataset.n !== n) return;
+    let d = Math.abs(i - at);
+    if (at >= 0 && dir && Math.sign(i - at) !== Math.sign(dir)) d += 100000;
+    if (d < bd){ bd = d; best = x; }
+  });
+  return best;
+}
 function rdGo(n, el, keepScroll){
   if (!rd.pt || rd.pt.fenOf(n) == null) return;
   rd.cur = n; rd.free = []; rd.sel = null;
-  const all = $("rdText").querySelectorAll(`[data-n="${n}"]`);
-  rd.el = el || (rd.el && rd.el.dataset.n == n ? rd.el : all[0]) || null;
+  rd.el = el || (rd.el && +rd.el.dataset.n === n ? rd.el : rdNear(n, 0));
   $("rdText").querySelectorAll(".cur").forEach(x => x.classList.remove("cur"));
   if (rd.el) rd.el.classList.add("cur");
   if (rd.el && !keepScroll){
     const box = $("rdText"), r = rd.el.getBoundingClientRect(), br = box.getBoundingClientRect();
     if (box.scrollHeight > box.clientHeight + 4){
       if (r.top < br.top + 40 || r.bottom > br.bottom - 40) box.scrollTop += r.top - br.top - box.clientHeight / 3;
-    } else if (r.top < 70 || r.bottom > innerHeight - 20) rd.el.scrollIntoView({ block:"center", behavior:"smooth" });
+    } else if (r.top < 70 || r.bottom > innerHeight - 20) rd.el.scrollIntoView({ block:"center" });
   }
   rdPaint(); rdEngGo();
 }
-/* ▶ — следующий ход по тексту; ◀ — ход назад по дереву */
+/* ▶ — продолжение той ветки, где стоим (ход-потомок, упомянутый дальше по тексту);
+   в конце ветки — следующий ход по тексту. ◀ — ход назад по дереву, к ближайшему
+   упоминанию. ◀ затем ▶ всегда возвращает туда же (стек rd.back). */
 function rdStep(d){
   if (!rd) return;
   if (d < 0 && rd.free.length){ rd.free.pop(); rd.sel = null; rdPaint(); rdEngGo(); return; }
-  const items = [...$("rdText").querySelectorAll(".bm, .rddiag")];
+  const items = rdItems(), at = rd.el ? items.indexOf(rd.el) : -1;
   if (d > 0){
-    const i = rd.el ? items.indexOf(rd.el) : -1;
-    const nx = items.slice(i + 1).find(x => x.classList.contains("bm"));
+    const bk = rd.back && rd.back.length ? rd.back[rd.back.length - 1] : null;
+    if (bk && rd.pt.nodes[+bk.dataset.n] && rd.pt.nodes[+bk.dataset.n][0] === rd.cur){
+      rd.back.pop(); rdGo(+bk.dataset.n, bk); return;
+    }
+    rd.back = [];
+    const kids = new Set(rd.cur != null ? (rd.pt.kids[rd.cur] || []) : []);
+    let nx = items.slice(at + 1).find(x => x.classList.contains("bm") && kids.has(+x.dataset.n));
+    if (!nx && kids.size){
+      const k = [...kids], main = k.find(i => rd.pt.nodes[i][3]);
+      const n = main != null ? main : k[0];
+      nx = rdNear(n, 1);
+      if (!nx){ rdGo(n, null); return; }
+    }
+    if (!nx) nx = items.slice(at + 1).find(x => x.classList.contains("bm"));
     if (nx) rdGo(+nx.dataset.n, nx);
     return;
   }
   if (rd.cur == null || rd.cur < 0) return;
   const par = rd.pt.nodes[rd.cur][0];
-  const i = rd.el ? items.indexOf(rd.el) : items.length;
-  const back = items.slice(0, i).reverse().find(x => +x.dataset.n === par);
-  rdGo(par, back || null);
+  if (rd.el){ (rd.back = rd.back || []).push(rd.el); }
+  const prev = items.slice(0, Math.max(at, 0)).reverse().find(x => +x.dataset.n === par);
+  rdGo(par, prev || rdNear(par, -1));
 }
 function rdEdge(d){
   if (!rd || !rd.pt || rd.cur == null) return;
@@ -1657,7 +1686,7 @@ function rdPlay(from, to){
   host.addEventListener("contextmenu", e => e.preventDefault());
   $("rdText").addEventListener("click", e => {
     const b = e.target.closest(".bm, .rddiag");
-    if (b && rd) rdGo(+b.dataset.n, b, true);
+    if (b && rd){ rd.back = []; rdGo(+b.dataset.n, b, true); }
   });
   $("rdPrev").onclick = () => rdStep(-1);
   $("rdNext").onclick = () => rdStep(1);

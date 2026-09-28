@@ -57,11 +57,22 @@ def load(bk):
     items, warn = [], []
     pages = sorted(int(f[1:4]) for f in os.listdir(f"{W}/txt") if re.fullmatch(r"p\d{3}\.txt", f))
     for p in pages:
-        txt = open(f"{W}/txt/p{p:03d}.txt", encoding="utf-8").read()
+        txt = open(f"{W}/txt/p{p:03d}.txt", encoding="utf-8").read().replace("†", "+")
+        txt = re.sub(r"(^|[\s(.*])W(?=x?[a-h][1-8])", r"\1Q", txt, flags=re.M)   # немецкое W = ферзь
+        txt = re.sub(r"[ \t]*\[\[(PTS|REF)\s+([^\]]*)\]\][ \t]*", r"\n[[\1 \2]]\n", txt)   # маркер посреди строки — на свою строку
         bl = boards.get(str(p), [])
         inside = lambda a, b: a is not b and b[0] <= a[0] and b[1] <= a[1] and a[0] + a[2] <= b[0] + b[2] + 8 and a[1] + a[3] <= b[1] + b[3] + 8
         ks = [k for k, b in enumerate(bl) if b[2] >= bk["min"] and not any(inside(b, o) for o in bl)]
         nd = 0
+        # страница упражнений: доски идут по колонкам (1–3 слева, 4–6 справа), а агент мог
+        # записать их по строкам — сопоставляем по номеру упражнения, а не по порядку в тексте
+        labs = re.findall(r"\[\[DIAG\s+([^\]]*)\]\]", txt)
+        exl = [re.search(r"(?:EX\s+)?(F-\d+|\d+-\d+)", a) for a in labs]
+        bylab = {}
+        if labs and all(x and ("EX" in a or x.group(1).startswith("F")) for a, x in zip(labs, exl)) and len(labs) == len(ks):
+            key = lambda n: tuple(int(t) for t in re.findall(r"\d+", n))
+            order = sorted((x.group(1) for x in exl), key=key)
+            bylab = {n: ks[i] for i, n in enumerate(order)}
         for para in re.split(r"\n\s*\n", txt.strip()):
             buf = []
             def flush():
@@ -75,7 +86,7 @@ def load(bk):
                 if tag == "DIAG":
                     lab = re.search(r"(EX\s+)?(F-\d+|\d+-\d+)", arg)
                     turn = re.search(r"turn=([wb])", arg); stars = re.search(r"stars=(\d)", arg)
-                    bk_ = ks[nd] if nd < len(ks) else -1
+                    bk_ = bylab.get(lab.group(2)) if (lab and bylab) else (ks[nd] if nd < len(ks) else -1)
                     fen = fix.get(f"{p}/{bk_}") or fens.get((p, bk_))
                     items.append(("diag", {"n": lab.group(2) if lab else None, "ex": bool(lab and (lab.group(1) or lab.group(2).startswith("F"))),
                                            "turn": turn.group(1) if turn else None, "stars": int(stars.group(1)) if stars else 0,
@@ -83,6 +94,19 @@ def load(bk):
                     nd += 1; continue
                 items.append((tag.lower(), (arg + " " + rest).strip(), p))
             flush()
+        # картинка диаграммы стоит в другой колонке после текста о ней — ставим её к ссылке [[REF]]
+        pg = [i for i, it in enumerate(items) if it[2] == p]
+        if pg:
+            seg = items[pg[0]:]
+            for d in [x for x in seg if x[0] == "diag" and x[1]["n"] and not x[1]["ex"]]:
+                di = seg.index(d)
+                ri = next((i for i, x in enumerate(seg) if x[0] == "ref" and re.sub(r"\D+$", "", x[1].replace("EX", "").strip()) == d[1]["n"]), None)
+                if ri is not None and ri < di:
+                    seg.pop(di)
+                    j = ri + 1
+                    while j < len(seg) and seg[j][0] == "game": j += 1
+                    seg.insert(j, d)
+            items[pg[0]:] = seg
         if nd != len(ks): warn.append(f"стр. {p}: диаграмм в тексте {nd}, досок {len(ks)}")
     # склейка продолжений через страницу
     out = []
@@ -140,10 +164,15 @@ def build(items):
                 n = re.search(r"(F-\d+|\d+-\d+)", pl)
                 n = n.group(1) if n else None
                 if n:
-                    cur_ex = ch["ex"].setdefault(n, {"n": n, "ans": []})
+                    cur_ex = ch["ex"].setdefault(n, {"n": n, "ans": []}); cur_ex.pop("_pts", None)
                     if n not in ch["order"]: ch["order"].append(n)
                 continue
+            # нет заголовка «Ex. N»: шапка партии после очков (или первая в разделе) — следующее упражнение
+            if kind == "game" and (cur_ex is None or cur_ex.get("_pts")):
+                nxt = next((n for n in ch["order"] if not ch["ex"][n]["ans"] and "game" not in ch["ex"][n]), None)
+                if nxt: cur_ex = ch["ex"][nxt]
             if cur_ex is None: continue
+            if kind == "pts": cur_ex["_pts"] = True
             if kind == "from": cur_ex["from"] = pl; continue
             if kind == "game" and "game" not in cur_ex: cur_ex["game"] = pl; continue
             if kind == "pts":

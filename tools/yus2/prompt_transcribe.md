@@ -13,18 +13,16 @@ an introduction with diagrams ("Diagram 3-1" …) and commented games, a page "E
 (12 diagrams "Ex. 3-1" …), "Solutions" (answers with points) and a "Scoring" box. At the
 end — "Final test" (F-1 …) with solutions.
 
-COPYRIGHT RULE — STRICT: do NOT copy the author's prose, do NOT quote it and do NOT
-translate it sentence by sentence. Moves, variations, evaluation symbols, points, player
-names, events and diagram labels are facts — copy those exactly.
-Instead of the author's prose write YOUR OWN TEACHING COMMENTARY IN RUSSIAN, as a chess coach
-explaining the position to a club player (about 1800–2000): for every move and variation the
-book gives, explain what it does and why — the threat, the defence it refutes, why the
-alternative fails, the plan, the typical pattern to remember. Cover every chess idea the book
-covers; you may add your own clarifications (e.g. spell out a short line the book only hints
-at, if you are sure of it). Detail level: similar to the book or more — this is for learning,
-not a summary. Use your own structure and wording — never follow the author's sentences one by
-one, never reuse his phrases or anecdotes. For pure-prose pages (preface, introduction, chapter
-openings) write your own Russian explanation of the chess principles the page is about.
+MODE: MOVES ONLY (fast). Do NOT copy or translate the author's prose. Copy exactly the facts:
+moves, variations (with brackets), evaluation symbols, points, diagram labels, and the NAME of every
+position exactly as the book gives it — the game/study header (players | event year) and any small
+title line printed with a diagram or solution ("Variation from the game", "Analysis", "Study", a
+composer name, "Tactics /Chapter 7" → `[[FROM]]`). Every commented position MUST get its `[[GAME]]`
+line when the book prints one. Instead of prose write at most ONE short Russian phrase (≤ 12 words)
+per variation block about the point (e.g. «ладья врывается на 7-ю, мат неизбежен»), or nothing.
+For pure-prose pages (preface, introduction, chapter openings without moves) write 1–2 Russian
+sentences of your own about the topic. Never keep any English sentence or phrase from the book
+(only names, events, diagram captions like "The bridge"). Read only your own pages' images.
 
 WORK FOLDER: /Users/vadimsamalo/Documents/kombinatorika/tools/yus2/work
 YOUR PAGES: {PAGES}
@@ -52,7 +50,7 @@ MARKUP (each marker on its own line):
 - Points: "(1 point)" → a separate line `[[PTS 1]]`.
 - Scoring box: `[[SCORE]] 16; 14; 12; 9` (maximum, excellent, good, pass mark).
 - Paragraphs are separated by an empty line. A paragraph = moves exactly as printed +
-  your Russian commentary, e.g. `**1.Rc6!! Bxc6** 2.Bh6 g6 3.Qxe5+- — жертва качества вскрывает короля, ферзь и слоны атакуют g7, защиты нет.`
+  the short Russian phrase, e.g. `**1.Rc6!! Bxc6** 2.Bh6 g6 3.Qxe5+- — жертва вскрывает короля.`
   Keep the moves in the order printed, keep brackets of variations.
 - If the page starts in the middle of a move sequence from the previous page — first line `[[CONT]]`.
 - BOLD moves (main line) wrap in `**…**`.
