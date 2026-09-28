@@ -221,7 +221,7 @@ def main():
                 mk = re.search(r"позици\w* диаграммы[^)]*\)?", text)
                 if mk: text = text[mk.end():] + " " + text      # номер хода — сразу после пометки
                 else: text = " ".join(re.findall(r"\*\*(.+?)\*\*", text)) + " " + text   # или по жирной главной линии
-                root = L.set_root(P.root_fen(placement, d.get("turn") or (e.get("adiag") or {}).get("turn"), text))
+                root = L.set_root(P.best_root(placement, d.get("turn") or (e.get("adiag") or {}).get("turn"), text))
                 L.prefer = root
                 blocks = render(ans, L)
                 L.prefer = None
@@ -253,7 +253,7 @@ def main():
             ru = "Итоговый тест" if ch.get("final") else (TITLES[bk["id"]][ch["n"] - 1] if 0 < ch["n"] <= 24 else ch["title"])
             chs.append({"n": ch["n"], "title": ru, "en": ch["title"], "contents": ch["contents"], "score": ch["score"],
                         "final": ch.get("final", False), "intro": intro, "ex": exs,
-                        "roots": tree.roots, "nodes": [[x["parent"], x["uci"], x["san"], 1 if x["main"] else 0] for x in tree.nodes]})
+                        "roots": tree.roots, "nodes": [[x["parent"], x["uci"], x["san"], 1 if x["main"] else 0] + ([x["base"]] if x.get("threat") else []) for x in tree.nodes]})
         pre_out = [{"title": s["title"], "blocks": [{"t": "p", "x": b["pl"]} for b in s["blocks"] if b["kind"] == "p"]} for s in pre]
         allbooks.append({"id": bk["id"], "title": bk["title"], "sub": bk["sub"], "pre": pre_out, "chapters": chs})
         stats.append((bk["id"], len(chs), sum(len(c["ex"]) for c in chs), tot, bad, len(warn)))

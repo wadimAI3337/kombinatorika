@@ -1479,6 +1479,73 @@ function rdHtml(blocks, pt){
   }
   return h;
 }
+/* ===== Дерево вариантов: все ходы открытого текста деревом —
+   главная линия сверху, ответвления с отступом, угрозы пунктиром ===== */
+let rdTab = "text";
+function rdTreeHtml(){
+  const pt = rd && rd.pt;
+  if (!pt) return '<p class="empty">Здесь нет ходов.</p>';
+  if (!pt.thr){
+    pt.thr = {};
+    pt.nodes.forEach((n, i) => { if (n.length > 4) (pt.thr[n[4]] = pt.thr[n[4]] || []).push(n[0]); });
+  }
+  const rootOf = n => { while (n >= 0) n = pt.nodes[n][0]; return n; };
+  const isThr = r => (pt.kids[r] || []).some(i => pt.nodes[i].length > 4);
+  const roots = [];
+  $("rdText").querySelectorAll(".bm, .rddiag").forEach(x => {
+    const r = rootOf(+x.dataset.n);
+    if (!roots.includes(r) && !isThr(r)) roots.push(r);
+  });
+  const kidsOf = n => { const k = (pt.kids[n] || []).slice(); k.sort((a, b) => pt.nodes[b][3] - pt.nodes[a][3]); return k; };
+  const mvHtml = (i, force) => {
+    const f = pt.fenOf(pt.nodes[i][0]).split(" "), w = f[1] === "w";
+    const num = w ? f[5] + "." : force ? f[5] + "…" : "";
+    return `<span class="tm">${num ? '<span class="num">' + num + "</span>" : ""}<button class="bm${pt.nodes[i][3] ? " main" : ""}" data-n="${i}">${bookMv(pt.nodes[i][2])}</button></span> `;
+  };
+  const thrHtml = i => (pt.thr[i] || []).map(r => `<div class="var thr">${line(r, true)}</div>`).join("");
+  /* линия от узла n: первый потомок — продолжение, остальные — ответвления */
+  function line(n, force){
+    let h = "", first = force;
+    for (;;){
+      const k = kidsOf(n);
+      if (!k.length) break;
+      const [m, ...alts] = k;
+      h += mvHtml(m, first);
+      first = false;
+      for (const a of alts){ h += `<div class="var">${mvHtml(a, true)}${line(a, false)}</div>`; first = true; }
+      const t = thrHtml(m);
+      if (t){ h += t; first = true; }
+      n = m;
+    }
+    return h;
+  }
+  if (!roots.length) return '<p class="empty">Здесь нет ходов.</p>';
+  return roots.map((r, k) => {
+    const d = $("rdText").querySelector(`.rddiag[data-n="${r}"]`);
+    const f = pt.fenOf(r).split(" ");
+    const head = roots.length > 1 ? `<div class="trh"><button class="bm" data-n="${r}">${d ? "Диаграмма" : "Начальная позиция"}</button> · ${f[1] === "w" ? "ход белых" : "ход чёрных"}</div>` : "";
+    return `<div class="tr">${head}<div class="ml">${thrHtml(r)}${line(r, true)}</div></div>`;
+  }).join("");
+}
+function rdSetTab(t){
+  rdTab = t;
+  document.querySelectorAll("#rdTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+  $("rdText").classList.toggle("gone", t !== "text");
+  $("rdTree").classList.toggle("gone", t !== "tree");
+  if (t === "tree"){ $("rdTree").innerHTML = rdTreeHtml(); rdTreeMark(true); }
+}
+function rdTreeMark(scroll){
+  if (rdTab !== "tree" || !rd) return;
+  const box = $("rdTree");
+  box.querySelectorAll(".cur").forEach(x => x.classList.remove("cur"));
+  const el = box.querySelector(`.bm[data-n="${rd.cur}"]`);
+  if (!el) return;
+  el.classList.add("cur");
+  if (scroll){
+    const r = el.getBoundingClientRect(), br = box.getBoundingClientRect();
+    if (r.top < br.top + 30 || r.bottom > br.bottom - 30) box.scrollTop += r.top - br.top - box.clientHeight / 3;
+  }
+}
 function rdOpen(state, html){
   rd = Object.assign({ cur:null, free:[], sel:null, flip:false, el:null }, state);
   document.documentElement.style.setProperty("--rdl", rdLines);
@@ -1491,6 +1558,7 @@ function rdOpen(state, html){
   $("rdSolve").classList.toggle("gone", !(rd.p && rd.p.m.length));
   document.querySelectorAll("#rdLinesSeg button").forEach(x => x.setAttribute("aria-pressed", String(+x.dataset.l === rdLines)));
   show("read");
+  rdSetTab(rdTab);
   const first = $("rdText").querySelector(".rddiag, .bm");
   if (rd.start != null) rdGo(rd.start, $("rdText").querySelector(`.rddiag[data-n="${rd.start}"]`), true);
   else if (first) rdGo(+first.dataset.n, first.classList.contains("rddiag") ? first : null, true);
@@ -1567,6 +1635,7 @@ function rdGo(n, el, keepScroll){
       if (r.top < br.top + 40 || r.bottom > br.bottom - 40) box.scrollTop += r.top - br.top - box.clientHeight / 3;
     } else if (r.top < 70 || r.bottom > innerHeight - 20) rd.el.scrollIntoView({ block:"center" });
   }
+  rdTreeMark(true);
   rdPaint(); rdEngGo();
 }
 /* ▶ — продолжение той ветки, где стоим (ход-потомок, упомянутый дальше по тексту);
@@ -1688,6 +1757,11 @@ function rdPlay(from, to){
     const b = e.target.closest(".bm, .rddiag");
     if (b && rd){ rd.back = []; rdGo(+b.dataset.n, b, true); }
   });
+  $("rdTree").addEventListener("click", e => {
+    const b = e.target.closest(".bm");
+    if (b && rd){ rd.back = []; rdGo(+b.dataset.n, null, true); }
+  });
+  document.querySelectorAll("#rdTabs button").forEach(b => b.onclick = () => rdSetTab(b.dataset.t));
   $("rdPrev").onclick = () => rdStep(-1);
   $("rdNext").onclick = () => rdStep(1);
   $("rdFirst").onclick = () => rdEdge(-1);
