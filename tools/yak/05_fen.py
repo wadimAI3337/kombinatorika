@@ -1,7 +1,8 @@
 """Клетки -> FEN (только расстановка): подпись кластера. Цвет ферзя кластер
-   путает (на штриховке белый и чёрный ферзь похожи) — его решает заливка тела
-   короны: у чёрного > 0.525. Единичные ошибки кластеров — в FIX глазами."""
+   путает (часть белых ферзей напечатана жирно) — его решает заливка короны,
+   порог проверен глазами на всех спорных клетках. Единичные ошибки — в FIX."""
 import numpy as np, json
+from sklearn.cluster import KMeans
 from labels import L, D
 C = np.load("work/cells.npy"); meta = json.load(open("work/cells_meta.json")); N = len(C)
 dark = np.array([(i // 8 + i % 8) % 2 == 1 for i in range(64)])
@@ -14,11 +15,16 @@ for name, mask, lm in (("L", ~dark, L), ("D", dark, D)):
     d = ((X[:, None, :] - T[None]) ** 2).sum(-1)
     near = np.array(classes)[d.argmin(1)]
     for i in np.where(near != names)[0]: dis.append((name, int(i), names[i], near[i]))
-    q = np.isin(names, ["Q", "q"])
-    body = X.reshape(-1, 40, 40)[:, 22:32, 12:28].mean((1, 2))
-    names[q] = np.where(body[q] > .525, "q", "Q")
+    # цвет ферзя: 2-means по клеткам с ферзями, признак — плотность в 200 пикселях,
+    # где центры групп сильнее всего различаются (у чёрного залита корона)
+    q = np.where(np.isin(names, ["Q", "q"]))[0]
+    km = KMeans(2, n_init=10, random_state=0).fit(X[q])
+    blk = int(np.argmax(km.cluster_centers_.mean(1)))
+    top = np.argsort(km.cluster_centers_[blk] - km.cluster_centers_[1 - blk])[-200:]
+    names[q] = np.where(X[q][:, top].mean(1) > .6, "q", "Q")
     out[:, mask] = names.reshape(N, -1)
-FIX = {(47, 0, "b2"): "B", (72, 1, "a1"): "r"}      # слон в «пустых», ладья в «пешках»
+FIX = {(47, 0, "b2"): "B", (72, 1, "a1"): "r",      # слон в «пустых», ладья в «пешках»
+       (40, 0, "h6"): "Q", (163, 0, "h8"): "Q", (51, 2, "h6"): "Q", (227, 1, "b6"): "Q"}   # жирно напечатанные белые ферзи
 where = {(p, k): i for i, (p, k, sz) in enumerate(meta)}
 for (p, k, sq), pc in FIX.items():
     out[where[(p, k)], (8 - int(sq[1])) * 8 + "abcdefgh".index(sq[0])] = pc

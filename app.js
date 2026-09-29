@@ -830,7 +830,9 @@ function renderBooks(){
       `<div class="thumb gthumb"><div class="gring"><svg viewBox="0 0 100 100"><use href="#pc-${g.pc}"/></svg></div></div>` +
       `<div class="body"><h3>${g.title}</h3><p class="meta">${g.meta}</p><p class="meta">${count}</p>` +
       (all.length || !list.length ? `<div class="prog"><div class="bar"><i style="width:${pct}%"></i></div>` +
-      `<b>${starOne()} ${done} / ${maxStars(all)}</b></div>` : "") + `</div>`;
+      `<b>${starOne()} ${done} / ${maxStars(all)}</b></div>` :
+      `<div class="prog"><div class="bar"><i style="width:${Math.round(100 * reads.reduce((a, b) => a + readIn(b.id, b.secs), 0) / unitsIn(reads.flatMap(b => b.secs)))}%"></i></div>` +
+      `<b>прочитано ${reads.reduce((a, b) => a + readIn(b.id, b.secs), 0)} / ${unitsIn(reads.flatMap(b => b.secs))}</b></div>`) + `</div>`;
     el.onclick = () => { grp = g; renderGroup(); show("group"); };
     host.appendChild(el);
   }
@@ -850,7 +852,9 @@ function renderGroup(){
       el.className = "book";
       el.innerHTML = `<div class="thumb">${mini(b.secs[1] ? b.secs[1].face : b.secs[0].face, false)}</div>` +
         `<div class="body"><h3>${esc(b.title)}</h3><p class="meta">${esc(b.meta)}</p>` +
-        `<p class="meta">Книга для чтения: каждая глава — отдельная карточка, ходы в тексте кликаются</p></div>`;
+        `<p class="meta">Книга для чтения: каждая глава — отдельная карточка, ходы в тексте кликаются</p>` +
+        `<div class="prog"><div class="bar"><i style="width:${Math.round(100 * readIn(b.id, b.secs) / unitsIn(b.secs))}%"></i></div>` +
+        `<b>прочитано ${readIn(b.id, b.secs)} / ${unitsIn(b.secs)}</b></div></div>`;
       el.onclick = () => { book = b; renderSections(); show("sections"); };
       host.appendChild(el);
       continue;
@@ -878,6 +882,14 @@ function renderSections(){
   grp = GROUPS.find(g => g.id === groupOf(book)) || grp;
   document.querySelectorAll(".gcrumb").forEach(el => el.textContent = grp.title);
   const ih = $("intros"); ih.innerHTML = "";
+  const rl = book.read && readOf(book.id).last, rs = rl && book.secs.find(s => s.id === rl.ch);
+  if (rs){
+    const el = document.createElement("button");
+    el.className = "introbar";
+    el.innerHTML = `<span class="ib">🔖</span><span><h3>Продолжить чтение</h3><p>${esc(rs.t)}${/^\d/.test(rl.sec) ? " · разбор №" + esc(rl.sec.split("-")[0]) : ""}</p></span><span class="go">Открыть →</span>`;
+    el.onclick = () => rdOpenRead(book, rs, rl.sec);
+    ih.appendChild(el);
+  }
   (book.intros || []).forEach((it, k) => {
     const el = document.createElement("button");
     el.className = "introbar";
@@ -887,17 +899,19 @@ function renderSections(){
   });
   $("bTitle").textContent = book.title;
   $("bReset").classList.toggle("gone", !!book.read);
-  $("bSub").textContent = book.read ? book.meta : book.meta + " · решено " +
+  $("bSub").textContent = book.read ? book.meta + " · прочитано " + readIn(book.id, book.secs) + " из " + unitsIn(book.secs) : book.meta + " · решено " +
     solvedIn(book.id, book.puzzles) + " из " + book.puzzles.length +
     " · звёзд " + starsIn(book.id, book.puzzles) + " из " + maxStars(book.puzzles);
   const host = $("cards"); host.innerHTML = "";
   for (const s of book.secs){
     if (s.read){
       const el = document.createElement("button");
+      const n = unitsOf(s).length, got = readIn(book.id, [s]);
       el.className = "card";
       el.innerHTML = `<div class="thumb">${mini(s.face, false)}</div>` +
         `<h3>${esc(s.t)}</h3><p class="sub">${esc(s.s)}</p>` +
-        `<div class="prog"><span class="go">Читать →</span></div>`;
+        `<div class="prog"><span>прочитано ${got} / ${n}</span><div class="bar"><i style="width:${Math.round(100 * got / n)}%"></i></div>` +
+        `<span class="go">${got === n ? "✓ Перечитать" : got ? "Дальше →" : "Читать →"}</span></div>`;
       el.onclick = () => rdOpenRead(book, s);
       host.appendChild(el);
       continue;
@@ -1480,9 +1494,11 @@ function yakBuild(){
   if (yakBuilt || !window.YAK) return;
   yakBuilt = true;
   for (const yb of window.YAK){
-    const secs = [];
+    const secs = [], seen = {};
     let nsec = 0;
     for (const ch of yb.chapters){
+      /* номера разборов в книге иногда повторяются (опечатки) — ключ уникальный */
+      ch.intro.forEach(b => { if (b.t === "s"){ const n = String(b.n); seen[n] = (seen[n] || 0) + 1; b.key = seen[n] > 1 ? n + "-" + seen[n] : n; } });
       const pt = mkTree({ roots:ch.roots, nodes:ch.nodes });
       const d = ch.intro.find(b => b.t === "d" && b.n != null && pt.fenOf(b.n));
       const title = ch.n ? "Глава " + ch.n + ". " + ch.title : ch.title;
@@ -1496,8 +1512,8 @@ function yakBuild(){
       puzzles:[], secs, intros:[] });
   }
 }
-const wordGames = n => (n % 10 === 1 && n % 100 !== 11) ? "разбор партии"
-  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "разбора партий" : "разборов партий";
+const wordGames = n => (n % 10 === 1 && n % 100 !== 11) ? "разбор"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "разбора" : "разборов";
 const wordCh = n => (n % 10 === 1 && n % 100 !== 11) ? "глава"
   : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "главы" : "глав";
 const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
@@ -1510,9 +1526,105 @@ const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
     if (view === "group") renderGroup();
   }, () => { yakState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
 })();
-function rdOpenRead(b, s){
-  rdOpen({ b, pt:s.pt, here:s.t }, `<h3 class="rdh">${esc(s.t)}</h3>` + rdHtml(s.intro, s.pt));
+/* Прогресс чтения (kombi-read, синхронизируется): по книге — прочитанные
+   разборы done{№: время}, заметки notes{№: текст}, last — где остановился.
+   Глава без разборов (предисловие) считается одним разбором «гл.N». */
+const readAll = () => { try { return JSON.parse(localStorage.getItem("kombi-read") || "{}"); } catch(e){ return {}; } };
+const readOf = bid => Object.assign({ done:{}, notes:{}, last:null }, readAll()[bid] || {});
+function readSet(bid, fn){
+  const all = readAll(), r = all[bid] = Object.assign({ done:{}, notes:{}, last:null }, all[bid] || {});
+  fn(r);
+  try { localStorage.setItem("kombi-read", JSON.stringify(all)); } catch(e){}
 }
+const unitsOf = s => { const u = s.intro.filter(b => b.t === "s").map(b => b.key || String(b.n)); return u.length ? u : ["гл." + s.id]; };
+const readIn = (bid, secs) => { const d = readOf(bid).done; return secs.reduce((a, s) => a + unitsOf(s).filter(u => d[u]).length, 0); };
+const unitsIn = secs => secs.reduce((a, s) => a + unitsOf(s).length, 0);
+let quizOn = true;
+try { quizOn = localStorage.getItem("kombi-quiz") !== "0"; } catch(e){}
+
+function rdOpenRead(b, s, go){
+  rdOpen({ b, pt:s.pt, here:s.t, rs:s }, `<h3 class="rdh">${esc(s.t)}</h3>` + rdHtml(s.intro, s.pt) +
+    (unitsOf(s)[0].startsWith("гл.") ? `<div class="rdsech end">${rdMarkBtn(b, unitsOf(s)[0])}</div>` : ""));
+  rdDecorate();
+  $("rdQuizT").classList.remove("gone");
+  $("rdQuizT").setAttribute("aria-pressed", String(quizOn));
+  const u = go || (readOf(b.id).last && readOf(b.id).last.ch === s.id ? readOf(b.id).last.sec : null);
+  const h = u && $("rdText").querySelector(`.rdsec[data-sec="${u}"]`);
+  if (h){
+    const d = [...$("rdText").querySelectorAll(".rddiag")].find(x => h.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (d) rdGo(+d.dataset.n, d, true);
+    h.parentNode.scrollIntoView({ block:"start" });
+  }
+}
+const rdMarkBtn = (b, u) => { const on = !!readOf(b.id).done[u];
+  return `<button class="rdmark${on ? " on" : ""}" data-u="${esc(u)}">${on ? "✓ Прочитано" : "Отметить прочитанным"}</button>`; };
+
+/* после отрисовки главы: кнопки у разборов, заметки, скрытые ответы на задания */
+function rdDecorate(){
+  const box = $("rdText"), b = rd.b, r = readOf(b.id);
+  box.querySelectorAll("h4.rdsec").forEach(h => {
+    const u = h.dataset.sec, wrap = document.createElement("div");
+    wrap.className = "rdsech";
+    h.replaceWith(wrap); wrap.appendChild(h);
+    wrap.insertAdjacentHTML("beforeend", rdMarkBtn(b, u) + `<button class="rdnotebtn" data-u="${esc(u)}" title="Заметка к разбору">✎</button>`);
+    const ta = document.createElement("textarea");
+    ta.className = "rdnote" + (r.notes[u] ? "" : " gone"); ta.dataset.u = u;
+    ta.placeholder = "Своя заметка к разбору: вывод, план, что запомнить…";
+    ta.value = r.notes[u] || "";
+    wrap.after(ta);
+  });
+  /* задания «А. Оцените позицию…»: ответ до пометки «(N очко)» или три абзаца */
+  rd.quiz = [];
+  let el = box.firstElementChild;
+  while (el){
+    if (!(el.matches("p.rdcap") && /^[АБВГA-D]\s*\./.test(el.textContent.trim()))){ el = el.nextElementSibling; continue; }
+    let q = 0, last = el;
+    while (last.nextElementSibling && last.nextElementSibling.matches("p.rdcap")){ last = last.nextElementSibling; q++; }
+    q++;
+    const hid = [];
+    let x = last.nextElementSibling, need = q;
+    while (x && need && !x.matches(".rdsech, .rdquiz") && !(x.matches("p.rdcap") && /^[АБВГA-D]\s*\./.test(x.textContent.trim()))){
+      hid.push(x);
+      if (/\d+\s*оч/.test(x.textContent)) need--;
+      x = x.nextElementSibling;
+    }
+    if (need){ hid.length = 0; x = last.nextElementSibling;
+      while (x && hid.length < 3 && !x.matches(".rdsech, p.rdcap")){ hid.push(x); x = x.nextElementSibling; } }
+    const prevD = (() => { let p = el.previousElementSibling; while (p && !p.matches(".rddiag, .rdsech")) p = p.previousElementSibling; return p && p.matches(".rddiag") ? +p.dataset.n : null; })();
+    if (hid.length && quizOn){
+      const wrap = document.createElement("div");
+      wrap.className = "rdquiz";
+      hid[0].before(wrap); hid.forEach(h => wrap.appendChild(h));
+      const btn = document.createElement("button");
+      btn.className = "rdreveal";
+      btn.innerHTML = "<b>Подумай сам</b><span>Ответ и оценка движка скрыты · нажми, чтобы открыть</span>";
+      wrap.before(btn);
+      const it = { wrap, node:prevD, open:false };
+      btn.onclick = () => { it.open = true; wrap.classList.add("open"); btn.remove(); rdRenderEval(); if (rdTab === "tree") rdSetTab("tree"); };
+      rd.quiz.push(it);
+    }
+    el = x;
+  }
+  box.onchange = null;
+  box.oninput = e => {
+    const ta = e.target.closest("textarea.rdnote");
+    if (!ta) return;
+    clearTimeout(ta._t);
+    ta._t = setTimeout(() => readSet(b.id, r => { const v = ta.value.trim(); if (v) r.notes[ta.dataset.u] = v; else delete r.notes[ta.dataset.u]; }), 500);
+  };
+  let lastSec = null;
+  box.onscroll = () => {
+    clearTimeout(box._t);
+    box._t = setTimeout(() => {
+      const top = box.getBoundingClientRect().top + 90;
+      let cur = null;
+      box.querySelectorAll(".rdsech .rdsec").forEach(h => { if (h.getBoundingClientRect().top < top) cur = h.dataset.sec; });
+      if (cur && cur !== lastSec){ lastSec = cur; readSet(b.id, r => r.last = { ch:rd.rs.id, sec:cur, t:Date.now() }); }
+    }, 400);
+  };
+}
+/* клетка позиции задания, ответ на которое ещё закрыт: движок молчит */
+const rdQuizHold = () => rd && rd.quiz && rd.quiz.some(q => !q.open && q.node != null && q.node === rd.cur);
 const loadState = id => id === "prophy" ? dvorState : id === "yusupov" ? yusState : id === "middle" ? yakState : "ok";
 function rdOpenChapter(b, s){
   const head = `<h3 class="rdh">${esc(s.t)}</h3>` + (s.contents ? `<p class="rdcap">${esc(s.contents)}</p>` : "");
@@ -1535,7 +1647,7 @@ function rdHtml(blocks, pt){
   let h = "";
   for (const b of blocks){
     if (b.t === "h") h += `<h3 class="rdh">${esc(niceTitle(b.x))}</h3>`;
-    else if (b.t === "s") h += `<h4 class="rdsec">${b.n ? "№" + esc(b.n) + ". " : ""}${esc(b.x)}</h4>`;
+    else if (b.t === "s") h += `<h4 class="rdsec" data-sec="${esc(b.key || String(b.n))}">${b.n ? "№" + esc(b.n) + ". " : ""}${esc(b.x)}</h4>`;
     else if (b.t === "g"){ const [a, c] = b.x.split(" | "); h += `<div class="rdgame">${esc(a)}${c ? "<span>" + esc(c) + "</span>" : ""}</div>`; }
     else if (b.t === "c") h += `<p class="rdcap">${rdSegs(b.s)}</p>`;
     else if (b.t === "p") h += `<p>${b.s ? rdSegs(b.s) : esc(b.x || "")}</p>`;
@@ -1596,7 +1708,7 @@ function rdTreeHtml(){
 }
 function rdSetTab(t){
   rdTab = t;
-  document.querySelectorAll("#rdTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+  document.querySelectorAll("#rdTabs button[data-t]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
   $("rdText").classList.toggle("gone", t !== "text");
   $("rdTree").classList.toggle("gone", t !== "tree");
   if (t === "tree"){ $("rdTree").innerHTML = rdTreeHtml(); rdTreeMark(true); }
@@ -1614,6 +1726,7 @@ function rdTreeMark(scroll){
   }
 }
 function rdOpen(state, html){
+  $("rdQuizT").classList.add("gone");
   rd = Object.assign({ cur:null, free:[], sel:null, flip:false, el:null }, state);
   document.documentElement.style.setProperty("--rdl", rdLines);
   $("rdCrumbBook").textContent = rd.b.title;
@@ -1675,7 +1788,7 @@ const rdFen = () => {
 };
 const engFen = () => view === "read" && rd ? rdFen() : (st ? st.fen : "");
 /* элементы текста с ходами и диаграммами — в порядке чтения */
-const rdItems = () => [...$("rdText").querySelectorAll(".bm, .rddiag")];
+const rdItems = () => [...$("rdText").querySelectorAll(".bm, .rddiag")].filter(x => !x.closest(".rdquiz:not(.open)"));
 /* тот из элементов узла n, что ближе всего к месту, где мы сейчас в тексте
    (dir < 0 — предпочитаем раньше, dir > 0 — позже): один и тот же ход
    встречается в разных ветках, и прыгать к первому упоминанию нельзя */
@@ -1821,6 +1934,15 @@ function rdPlay(from, to){
   });
   host.addEventListener("contextmenu", e => e.preventDefault());
   $("rdText").addEventListener("click", e => {
+    const mk = e.target.closest(".rdmark");
+    if (mk && rd){
+      const u = mk.dataset.u;
+      readSet(rd.b.id, r => { if (r.done[u]) delete r.done[u]; else { r.done[u] = Date.now(); r.last = { ch:rd.rs.id, sec:u, t:Date.now() }; } });
+      mk.outerHTML = rdMarkBtn(rd.b, u);
+      return;
+    }
+    const nb = e.target.closest(".rdnotebtn");
+    if (nb){ const ta = $("rdText").querySelector(`textarea.rdnote[data-u="${nb.dataset.u}"]`); if (ta){ ta.classList.remove("gone"); ta.focus(); } return; }
     const b = e.target.closest(".bm, .rddiag");
     if (b && rd){ rd.back = []; rdGo(+b.dataset.n, b, true); }
   });
@@ -1828,7 +1950,12 @@ function rdPlay(from, to){
     const b = e.target.closest(".bm");
     if (b && rd){ rd.back = []; rdGo(+b.dataset.n, null, true); }
   });
-  document.querySelectorAll("#rdTabs button").forEach(b => b.onclick = () => rdSetTab(b.dataset.t));
+  document.querySelectorAll("#rdTabs button[data-t]").forEach(b => b.onclick = () => rdSetTab(b.dataset.t));
+  $("rdQuizT").onclick = () => {
+    quizOn = !quizOn;
+    try { localStorage.setItem("kombi-quiz", quizOn ? "1" : "0"); } catch(e){}
+    if (rd && rd.rs){ const at = $("rdText").scrollTop; rdOpenRead(rd.b, rd.rs); $("rdText").scrollTop = at; }
+  };
   $("rdPrev").onclick = () => rdStep(-1);
   $("rdNext").onclick = () => rdStep(1);
   $("rdFirst").onclick = () => rdEdge(-1);
@@ -1857,10 +1984,11 @@ function rdEngGo(){
 }
 function rdRenderEval(){
   if (!rd) return;
-  const f = rdFen(), top = anInfo.pvs[0];
+  const f = rdFen(), hold = rdQuizHold(), top = hold ? null : anInfo.pvs[0];
   $("rdEngBtn").textContent = engState === "on" ? "Выключить движок" : engState === "loading" ? "Загрузка…" : "Включить движок";
-  $("rdScore").textContent = anOver ? (anOver === "мат" ? "#" : "=") : engState === "on" ? evalTxt(top) : "—";
+  $("rdScore").textContent = hold ? "?" : anOver ? (anOver === "мат" ? "#" : "=") : engState === "on" ? evalTxt(top) : "—";
   $("rdDepth").textContent =
+    hold ? "оценка скрыта, пока думаешь над заданием" :
     anOver ? (anOver === "мат" ? "мат" : "пат — ничья") :
     engState === "loading" ? "Stockfish 19 загружается…" :
     engState === "fail" ? "движок не загрузился — нужен интернет" :
@@ -1871,7 +1999,7 @@ function rdRenderEval(){
   bar.querySelector("i").style.height = (rd.flip ? 100 - pct : pct) + "%";
   bar.style.transform = rd.flip ? "scaleY(-1)" : "";
   const host = $("rdLines"); host.innerHTML = "";
-  if (engState !== "on" || anOver) return;
+  if (engState !== "on" || anOver || hold) return;
   anInfo.pvs.slice(0, rdLines).forEach(e => {
     if (!e) return;
     const el = document.createElement("button");
