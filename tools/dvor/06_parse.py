@@ -245,7 +245,7 @@ class Linker:
         if self.cur is None and not (ply == 0 and num): return None, prev_ply   # до первой диаграммы — только партия с 1-го хода
         tries = []
         if ply is not None: tries += self.candidates(ply)
-        if bold and ply is not None and self.main is not None:
+        if bold and not self.stack and ply is not None and self.main is not None:
             # жирный ход — продолжение главной линии, а не варианта, упомянутого в тексте
             mp = self.path(self.main, ply)
             tries = mp + [x for x in tries if x not in mp]
@@ -259,7 +259,7 @@ class Linker:
                 nid = self.t.child(parent, mv, b, bold)
                 if nid not in self.scope: self.scope.append(nid)
                 self.cur = self.merge(nid)
-                if bold: self.main = self.cur
+                if bold and not self.stack: self.main = self.cur
                 return nid, self.t.ply(self.cur)
         # опечатки распознавания/книги: одна буква или цифра, фигура.
         # Выключено по умолчанию: на вычитанном тексте эта «починка» чаще цепляла ход
@@ -311,7 +311,7 @@ class Linker:
                     nid = self.t.child(r, mv, b, bold)
                     if nid not in self.scope: self.scope.append(nid)
                     self.cur = nid
-                    if bold: self.main = nid
+                    if bold and not self.stack: self.main = nid
                     return nid, self.t.ply(nid)
         # угроза: «грозит 20.Rc7», «грозит матом Qxf7#» — ход той же стороны,
         # будто соперник пропустил ход (от последней настоящей позиции)
@@ -369,11 +369,12 @@ def link_paragraph(text, L):
         last_end = None
         while i < len(part):
             ch = part[i]
-            if ch == "(":
+            br = {"[": "(", "]": ")"}.get(ch, ch) if L.stack else ch   # [вложенный вариант] внутри скобок
+            if br == "(":
                 L.stack.append((L.cur, prev_ply)); buf += ch; i += 1; continue
             if ch == ";" and L.stack:
                 L.cur, prev_ply = L.stack[-1]; buf += ch; i += 1; continue
-            if ch == ")" and L.stack:
+            if br == ")" and L.stack:
                 L.cur, prev_ply = L.stack.pop(); buf += ch; i += 1; continue
             m = MOVE_RX.match(part, i) if not ch.isspace() else None
             okstart = i == 0 or not re.match(r"[A-Za-zА-Яа-яЁё0-9]", part[i - 1])
@@ -527,10 +528,34 @@ def repair_root(placement, turn, text, best, have):
                 if not mv: break
                 bb.push(mv); k += 1
             if k: good.append((-k, f))
+    # фигура не на своей клетке (перенос с поля на поле); при равенстве — перенос по той же линии
+    near = {}
+    for a in chess.SQUARES:
+        pc = base.piece_at(a)
+        if not pc or pc.piece_type == chess.KING: continue
+        for b2 in chess.SQUARES:
+            if base.piece_at(b2): continue
+            b = base.copy(); b.remove_piece_at(a); b.set_piece_at(b2, pc)
+            pl = b.board_fen()
+            f = f"{pl} {side} {castle_fen(pl)} - 0 {int(m0.group('num'))}"
+            try: bb = chess.Board(f)
+            except ValueError: continue
+            if not bb.is_valid(): continue
+            k = 0
+            for tok in seq:
+                mv = match_move(bb, tok)
+                if not mv: break
+                bb.push(mv); k += 1
+            if k: good.append((-k, f)); near[f] = chess.square_rank(a) == chess.square_rank(b2) or chess.square_file(a) == chess.square_file(b2)
     good.sort()
     if not good: return None
     top = [f for kk, f in good if kk == good[0][0]][:12]
-    sc = sorted(((links_from(f, text), f) for f in top), reverse=True)
+    sc = sorted(((links_from(f, text), near.get(f, True), f) for f in top), reverse=True)
+    sc = [(a, f) for a, _, f in sc]
+    if len(sc) > 1 and sc[0][0] == sc[1][0]:
+        eq = [f for a, f in sc if a == sc[0][0]]
+        pick = [f for f in eq if near.get(f, True)]
+        if len(pick) == 1: sc = [(sc[0][0], pick[0])]
     if sc and sc[0][0] >= have + 3 and (len(sc) == 1 or sc[0][0] > sc[1][0]):
         REPAIRS.append((placement, sc[0][1].split(" ")[0]))
         return sc[0][1]

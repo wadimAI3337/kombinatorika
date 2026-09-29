@@ -28,6 +28,8 @@ BOOKS = [
      "sub": "Beyond the Basics · оранжевая серия"},
     {"dir": "../yus2", "id": "yus2", "min": 500, "title": "Boost Your Chess 2",
      "sub": "Beyond the Basics · синяя серия"},
+    {"dir": "../yus3", "id": "yus3", "min": 500, "title": "Chess Evolution 2",
+     "sub": "Beyond the Basics · зелёная серия", "byname": True},
 ]
 
 TITLES = {
@@ -45,19 +47,35 @@ TITLES = {
           "Типичные ошибки при расчёте вариантов", "Устранение защиты", "Хороший и плохой слон",
           "Закрытые дебюты", "Освобождение линии", "Техника эндшпиля", "Блокада",
           "Вытаскивание короля", "Дебют Рети и английское начало", "Типичные ошибки в эндшпиле"],
+ "yus3": ["Комбинированная атака по седьмой и восьмой горизонталям", "Размены", "Атака на короля",
+          "Дебютный репертуар против 1.c4", "Не допускайте контригры!", "Перевес в развитии",
+          "Использование слабостей", "Расчёт коротких вариантов", "Лучшая пешечная структура",
+          "Пешечная фаланга", "Дебютный репертуар: чёрными против Рети, белыми против староиндийской",
+          "Не торопитесь!", "Жертва двух слонов", "Игра пешками", "Активные ходы", "Промежуточные шахи",
+          "Улучшение позиции фигур", "Жертвы пешки в дебюте", "Промежуточные ходы",
+          "Принцип двух слабостей", "Пространственный перевес", "Контрудары", "Центр в дебюте",
+          "Правильные размены"],
 }
 TAG = re.compile(r"\[\[(CHAPTER|CONTENTS|H|DIAG|REF|FROM|GAME|PTS|SCORE|CONT|PART|CAP)\s*([^\]]*)\]\]\s*(.*)$")
 
 def load(bk):
     W = os.path.join(os.path.dirname(__file__), bk["dir"], "work")
-    boards = json.load(open(f"{W}/boards.json"))
-    fens = {(r["p"], r["k"]): r["fen"] for r in json.load(open(f"{W}/fens.json"))}
+    # позиции по подписям (FEN-файл владельца книги) — без распознавания досок
+    byname = json.load(open(f"{W}/fens_by_label.json")) if bk.get("byname") else None
+    boards = {} if byname else json.load(open(f"{W}/boards.json"))
+    fens = {} if byname else {(r["p"], r["k"]): r["fen"] for r in json.load(open(f"{W}/fens.json"))}
     fixf = os.path.join(os.path.dirname(__file__), bk["dir"], "fix_fens.json")
     fix = json.load(open(fixf)) if os.path.exists(fixf) else {}
     items, warn = [], []
     pages = sorted(int(f[1:4]) for f in os.listdir(f"{W}/txt") if re.fullmatch(r"p\d{3}\.txt", f))
     for p in pages:
         txt = open(f"{W}/txt/p{p:03d}.txt", encoding="utf-8").read().replace("†", "+")
+        txt = txt.translate(str.maketrans("♔♕♖♗♘♚♛♜♝♞", "KQRBNKQRBN"))   # фигурки -> буквы
+        # пометки, записанные агентом простым текстом: «Ex. 14-12», «Diagram 3-1», «(2 points)»
+        txt = re.sub(r"(?m)^\s*Ex\.?\s*(\d+-\d+)\s*$", r"[[REF EX \1]]", txt)
+        txt = re.sub(r"(?m)^\s*(F-\d+)\s*$", r"[[REF \1]]", txt)
+        txt = re.sub(r"(?m)^\s*Diagram\s+(\d+-\d+)\s*$", r"[[REF \1]]", txt)
+        txt = re.sub(r"(?m)^\s*\((?:another\s+|also\s+)?(\d+)\s+(?:\w+\s+)?points?\b[^)\n]*\)\s*$", r"[[PTS \1]]", txt)
         txt = re.sub(r"(^|[\s(.*])W(?=x?[a-h][1-8])", r"\1Q", txt, flags=re.M)   # немецкое W = ферзь
         txt = re.sub(r"[ \t]*\[\[(PTS|REF)\s+([^\]]*)\]\][ \t]*", r"\n[[\1 \2]]\n", txt)   # маркер посреди строки — на свою строку
         bl = boards.get(str(p), [])
@@ -88,6 +106,11 @@ def load(bk):
                     turn = re.search(r"turn=([wb])", arg); stars = re.search(r"stars=(\d)", arg)
                     bk_ = bylab.get(lab.group(2)) if (lab and bylab) else (ks[nd] if nd < len(ks) else -1)
                     fen = fix.get(f"{p}/{bk_}") or fens.get((p, bk_))
+                    if byname and lab:
+                        kind = "F" if lab.group(2).startswith("F") else "EX" if lab.group(1) else "D"
+                        r = byname.get(kind + " " + lab.group(2))
+                        fen = r["fen"].split(" ")[0] if r else None
+                        if r and not turn: turn = re.match(r"(w|b)", r["fen"].split(" ")[1])
                     items.append(("diag", {"n": lab.group(2) if lab else None, "ex": bool(lab and (lab.group(1) or lab.group(2).startswith("F"))),
                                            "turn": turn.group(1) if turn else None, "stars": int(stars.group(1)) if stars else 0,
                                            "fen": fen, "small": False, "src": f"{p}/{bk_}"}, p))
@@ -101,13 +124,14 @@ def load(bk):
             for d in [x for x in seg if x[0] == "diag" and x[1]["n"] and not x[1]["ex"]]:
                 di = seg.index(d)
                 ri = next((i for i, x in enumerate(seg) if x[0] == "ref" and re.sub(r"\D+$", "", x[1].replace("EX", "").strip()) == d[1]["n"]), None)
-                if ri is not None and ri < di:
+                if ri is not None and ri != di - 1:      # и раньше, и позже ссылки (сайдбар на первой странице главы)
                     seg.pop(di)
+                    if ri > di: ri -= 1
                     j = ri + 1
                     while j < len(seg) and seg[j][0] == "game": j += 1
                     seg.insert(j, d)
             items[pg[0]:] = seg
-        if nd != len(ks): warn.append(f"стр. {p}: диаграмм в тексте {nd}, досок {len(ks)}")
+        if nd != len(ks) and not byname: warn.append(f"стр. {p}: диаграмм в тексте {nd}, досок {len(ks)}")
     # склейка продолжений через страницу
     out = []
     for it in items:
@@ -119,7 +143,13 @@ def load(bk):
                 out[j] = ("p", out[j][1] + " " + it[1], out[j][2]); continue
         if it[0] == "cont": out.append(it); continue
         out.append(it)
-    return [x for x in out if x[0] != "cont"], warn
+    out = [x for x in out if x[0] != "cont"]
+    # шапка партии сразу после диаграммы («Diagram 1-1» / «Keres – Raud») — ставим перед ней,
+    # чтобы текст за диаграммой давал номер хода её позиции
+    for i in range(len(out) - 1):
+        if out[i][0] == "diag" and out[i + 1][0] == "game":
+            out[i], out[i + 1] = out[i + 1], out[i]
+    return out, warn
 
 def build(items):
     """Поток -> предисловие + главы. Глава: intro (поток), ex (упражнения), sol (ответы)."""
@@ -136,7 +166,10 @@ def build(items):
         if kind == "h":
             t = pl.strip().lower()
             if t.startswith("exercises"): mode = "ex"; continue
-            if t.startswith("solutions"): mode = "sol"; continue
+            if t.startswith("solutions"):
+                # доски на странице упражнений записаны то по строкам, то по колонкам — порядок только по номеру
+                if ch: ch["order"].sort(key=lambda s: tuple(int(x) for x in re.findall(r"\d+", s)))
+                mode = "sol"; continue
             if t.startswith("scoring"): continue
             if t.startswith("final test"):
                 if final is None:
@@ -163,6 +196,9 @@ def build(items):
             if kind == "ref":
                 n = re.search(r"(F-\d+|\d+-\d+)", pl)
                 n = n.group(1) if n else None
+                if n and cur_ex is not None and cur_ex["n"] == n and cur_ex["ans"]:
+                    cur_ex["ans"].append({"kind": "mark", "pl": n, "page": page})   # «Ex. N» после партии — позиция упражнения
+                    continue
                 if n:
                     cur_ex = ch["ex"].setdefault(n, {"n": n, "ans": []}); cur_ex.pop("_pts", None)
                     if n not in ch["order"]: ch["order"].append(n)
@@ -191,13 +227,16 @@ def build(items):
 def render(blocks, L):
     out = []
     for b in blocks:
+        if b["kind"] == "mark":
+            if L.cur is not None and L.cur >= 0: L.mark = L.cur
+            continue
         if b["kind"] == "pts":
             out.append({"t": "pts", "x": b["pl"]}); continue
         if b["kind"] in ("p", "game", "cap", "h", "diag"):
             out += P.render([b], L) if b["kind"] != "p" else [{"t": "p", "s": P.link_paragraph(b["pl"], L)}]
     return out
 
-PUBLISH = [a for a in sys.argv[1:] if a.startswith("yus")] or ["yus1", "yus2"]
+PUBLISH = [a for a in sys.argv[1:] if a.startswith("yus")] or ["yus1", "yus2", "yus3"]
 
 def main():
     allbooks, stats = [], []
@@ -210,7 +249,7 @@ def main():
             tree = P.Tree(); L = P.Linker(tree)
             intro = P.render(ch["intro"], L)
             exs = []
-            for n in ch["order"]:
+            for n in sorted(ch["order"], key=lambda s: tuple(int(x) for x in re.findall(r"\d+", s))):
                 e = ch["ex"][n]
                 d = e.get("diag") or e.get("adiag")
                 if not d or not (d.get("fen") or (e.get("adiag") or {}).get("fen")): continue
@@ -222,9 +261,15 @@ def main():
                 if mk: text = text[mk.end():] + " " + text      # номер хода — сразу после пометки
                 else: text = " ".join(re.findall(r"\*\*(.+?)\*\*", text)) + " " + text   # или по жирной главной линии
                 root = L.set_root(P.best_root(placement, d.get("turn") or (e.get("adiag") or {}).get("turn"), text))
-                L.prefer = root
+                L.prefer = root; L.mark = None
                 blocks = render(ans, L)
                 L.prefer = None
+                mark = L.mark
+                if not any(x["parent"] == root for x in tree.nodes) and mark is not None and any(x["parent"] == mark for x in tree.nodes):
+                    # доска на странице упражнений перепутана, а партия из решения дошла до пометки «Ex. N»:
+                    # позиция упражнения — та, где стоит пометка
+                    print(bk["id"], "упр.", n, "позиция взята из партии у пометки упражнения")
+                    root = mark
                 if not any(x["parent"] == root for x in tree.nodes):
                     # партия из решения дошла до позиции диаграммы: берём её, если отличие 0–3 поля
                     # (распознавание иногда теряет тонкого слона)
