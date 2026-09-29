@@ -821,15 +821,16 @@ function renderBooks(){
     el.className = "book";
     const done = list.reduce((a, b) => a + starsIn(b.id, b.puzzles), 0);
     const pct = all.length ? Math.round(100 * done / maxStars(all)) : 0;
-    const st_ = g.id === "prophy" ? dvorState : g.id === "yusupov" ? yusState : "ok";
-    const count = (g.id === "prophy" || g.id === "yusupov") && !list.length
+    const st_ = loadState(g.id);
+    const reads = list.filter(b => b.read), chs = reads.reduce((a, b) => a + b.secs.length, 0);
+    const count = st_ !== "ok" && !list.length
       ? (st_ === "fail" ? "не загрузилось — обнови страницу" : "загружается…")
-      : list.length + " " + wordBook(list.length) + " · " + all.length + " задач";
+      : list.length + " " + wordBook(list.length) + " · " + (all.length || !reads.length ? all.length + " задач" : chs + " " + wordCh(chs) + " для чтения");
     el.innerHTML =
       `<div class="thumb gthumb"><div class="gring"><svg viewBox="0 0 100 100"><use href="#pc-${g.pc}"/></svg></div></div>` +
       `<div class="body"><h3>${g.title}</h3><p class="meta">${g.meta}</p><p class="meta">${count}</p>` +
-      `<div class="prog"><div class="bar"><i style="width:${pct}%"></i></div>` +
-      `<b>${starOne()} ${done} / ${maxStars(all)}</b></div></div>`;
+      (all.length || !list.length ? `<div class="prog"><div class="bar"><i style="width:${pct}%"></i></div>` +
+      `<b>${starOne()} ${done} / ${maxStars(all)}</b></div>` : "") + `</div>`;
     el.onclick = () => { grp = g; renderGroup(); show("group"); };
     host.appendChild(el);
   }
@@ -840,10 +841,20 @@ function renderGroup(){
   $("gTitle").textContent = grp.title;
   $("gSub").textContent = grp.meta;
   const list = BOOKS.filter(b => groupOf(b) === grp.id);
-  const st_ = grp.id === "yusupov" ? yusState : dvorState;
+  const st_ = loadState(grp.id);
   if (!list.length) host.innerHTML = '<p style="color:var(--ink-3)">' +
     (st_ === "fail" ? "Книги не загрузились — проверь интернет и обнови страницу." : "Книги загружаются…") + "</p>";
   for (const b of list){
+    if (b.read){
+      const el = document.createElement("button");
+      el.className = "book";
+      el.innerHTML = `<div class="thumb">${mini(b.secs[1] ? b.secs[1].face : b.secs[0].face, false)}</div>` +
+        `<div class="body"><h3>${esc(b.title)}</h3><p class="meta">${esc(b.meta)}</p>` +
+        `<p class="meta">Книга для чтения: каждая глава — отдельная карточка, ходы в тексте кликаются</p></div>`;
+      el.onclick = () => { book = b; renderSections(); show("sections"); };
+      host.appendChild(el);
+      continue;
+    }
     const done = starsIn(b.id, b.puzzles), got = solvedIn(b.id, b.puzzles);
     const pct = Math.round(100 * done / maxStars(b.puzzles));
     const face = b.puzzles.find(p => !rec(b.id, p.n).solved) || b.puzzles[0];
@@ -875,11 +886,22 @@ function renderSections(){
     ih.appendChild(el);
   });
   $("bTitle").textContent = book.title;
-  $("bSub").textContent = book.meta + " · решено " +
+  $("bReset").classList.toggle("gone", !!book.read);
+  $("bSub").textContent = book.read ? book.meta : book.meta + " · решено " +
     solvedIn(book.id, book.puzzles) + " из " + book.puzzles.length +
     " · звёзд " + starsIn(book.id, book.puzzles) + " из " + maxStars(book.puzzles);
   const host = $("cards"); host.innerHTML = "";
   for (const s of book.secs){
+    if (s.read){
+      const el = document.createElement("button");
+      el.className = "card";
+      el.innerHTML = `<div class="thumb">${mini(s.face, false)}</div>` +
+        `<h3>${esc(s.t)}</h3><p class="sub">${esc(s.s)}</p>` +
+        `<div class="prog"><span class="go">Читать →</span></div>`;
+      el.onclick = () => rdOpenRead(book, s);
+      host.appendChild(el);
+      continue;
+    }
     const done = starsIn(book.id, s.items);
     const pct = Math.round(100 * done / maxStars(s.items));
     const face = s.items.find(p => !rec(book.id, p.n).solved) || s.items[0];
@@ -1319,6 +1341,7 @@ const GROUPS = [
   { id:"strategy", title:"Стратегия",    meta:"Позиционная игра · шесть уровней",              pc:"R" },
   { id:"prophy",   title:"Профилактика", meta:"Книги / Профилактика · введение и упражнения", pc:"K" },
   { id:"yusupov",  title:"Артур Юсупов", meta:"Книги · главы: введение и упражнения", pc:"Q" },
+  { id:"middle",   title:"Миттельшпиль", meta:"Книги · план игры, главы для чтения", pc:"B" },
 ];
 const groupOf = b => b.group || (/^pos\d/.test(b.id) ? "strategy" : "tactics");
 let grp = GROUPS[0];
@@ -1448,6 +1471,49 @@ function yusBuild(){
     gauge();
   }, () => { yusState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
 })();
+
+/* ===== Книги для чтения (yak.js): глава = карточка, открывается читалкой =====
+   Задач нет — в главе разборы партий «№N» с диаграммами, все ходы кликаются.
+   Одно дерево вариантов на главу, как у введений dvor.js. */
+let yakState = "idle", yakBuilt = false;
+function yakBuild(){
+  if (yakBuilt || !window.YAK) return;
+  yakBuilt = true;
+  for (const yb of window.YAK){
+    const secs = [];
+    let nsec = 0;
+    for (const ch of yb.chapters){
+      const pt = mkTree({ roots:ch.roots, nodes:ch.nodes });
+      const d = ch.intro.find(b => b.t === "d" && b.n != null && pt.fenOf(b.n));
+      const title = ch.n ? "Глава " + ch.n + ". " + ch.title : ch.title;
+      nsec += ch.secs;
+      secs.push({ id:yb.id + "c" + ch.n, t:title, read:true, pt, intro:ch.intro, items:[],
+        face:d ? pt.fenOf(d.n) : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        s:(ch.secs ? ch.secs + " " + wordGames(ch.secs) + " · " : "") + ch.diags + " " + wordDiags(ch.diags) });
+    }
+    BOOKS.push({ id:yb.id, kind:"dvor", read:true, group:"middle", title:yb.title,
+      meta:yb.author + " · " + (secs.length - 1) + " " + wordCh(secs.length - 1) + " · " + nsec + " " + wordGames(nsec),
+      puzzles:[], secs, intros:[] });
+  }
+}
+const wordGames = n => (n % 10 === 1 && n % 100 !== 11) ? "разбор партии"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "разбора партий" : "разборов партий";
+const wordCh = n => (n % 10 === 1 && n % 100 !== 11) ? "глава"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "главы" : "глав";
+const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "диаграммы" : "диаграмм";
+(function yakLoad(){
+  yakState = "loading";
+  loadScript("yak.js", () => {
+    yakState = "ok"; yakBuild();
+    if (view === "books") renderBooks();
+    if (view === "group") renderGroup();
+  }, () => { yakState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
+})();
+function rdOpenRead(b, s){
+  rdOpen({ b, pt:s.pt, here:s.t }, `<h3 class="rdh">${esc(s.t)}</h3>` + rdHtml(s.intro, s.pt));
+}
+const loadState = id => id === "prophy" ? dvorState : id === "yusupov" ? yusState : id === "middle" ? yakState : "ok";
 function rdOpenChapter(b, s){
   const head = `<h3 class="rdh">${esc(s.t)}</h3>` + (s.contents ? `<p class="rdcap">${esc(s.contents)}</p>` : "");
   rdOpen({ b, pt:s.pt, here:"Введение · " + s.t }, head + rdHtml(s.intro, s.pt));
@@ -1469,6 +1535,7 @@ function rdHtml(blocks, pt){
   let h = "";
   for (const b of blocks){
     if (b.t === "h") h += `<h3 class="rdh">${esc(niceTitle(b.x))}</h3>`;
+    else if (b.t === "s") h += `<h4 class="rdsec">${b.n ? "№" + esc(b.n) + ". " : ""}${esc(b.x)}</h4>`;
     else if (b.t === "g"){ const [a, c] = b.x.split(" | "); h += `<div class="rdgame">${esc(a)}${c ? "<span>" + esc(c) + "</span>" : ""}</div>`; }
     else if (b.t === "c") h += `<p class="rdcap">${rdSegs(b.s)}</p>`;
     else if (b.t === "p") h += `<p>${b.s ? rdSegs(b.s) : esc(b.x || "")}</p>`;
