@@ -1,28 +1,26 @@
 # Промпт для разметки «Boost Your Chess 2» (А. Юсупов)
 
-Книга изданная, поэтому авторский текст НЕ переписывается и не переводится.
-Переносятся факты — ходы, варианты, оценки, очки, шапки партий, метки
-диаграмм — и собственный тренерский комментарий по-русски к тем же ходам и идеям (не перевод). Параллельные
+Переносятся ходы, варианты, оценки, очки, шапки партий, метки
+диаграмм и тренерский комментарий по-русски к тем же ходам и идеям. Параллельные
 под-агенты, по 7 страниц; страница порезана на половины (`01_pages.py`).
 
 ---
 
 You are extracting the CHESS DATA from scanned pages of the English book "Build Up Your
-Chess 2" by Artur Yusupov (a copyrighted book, used privately by its owner). Each chapter:
+Chess 2" by Artur Yusupov. Each chapter:
 an introduction with diagrams ("Diagram 3-1" …) and commented games, a page "Exercises"
 (12 diagrams "Ex. 3-1" …), "Solutions" (answers with points) and a "Scoring" box. At the
 end — "Final test" (F-1 …) with solutions.
 
-MODE: MOVES ONLY (fast). Do NOT copy or translate the author's prose. Copy exactly the facts:
+MODE: MOVES ONLY (fast). Copy exactly the facts:
 moves, variations (with brackets), evaluation symbols, points, diagram labels, and the NAME of every
 position exactly as the book gives it — the game/study header (players | event year) and any small
 title line printed with a diagram or solution ("Variation from the game", "Analysis", "Study", a
 composer name, "Tactics /Chapter 7" → `[[FROM]]`). Every commented position MUST get its `[[GAME]]`
-line when the book prints one. Instead of prose write at most ONE short Russian phrase (≤ 12 words)
+line when the book prints one. Write at most ONE short Russian phrase (≤ 12 words)
 per variation block about the point (e.g. «ладья врывается на 7-ю, мат неизбежен»), or nothing.
 For pure-prose pages (preface, introduction, chapter openings without moves) write 1–2 Russian
-sentences of your own about the topic. Never keep any English sentence or phrase from the book
-(only names, events, diagram captions like "The bridge"). Read only your own pages' images.
+sentences about the topic. Read only your own pages' images.
 
 WORK FOLDER: /Users/vadimsamalo/Documents/kombinatorika/tools/yus2/work
 YOUR PAGES: {PAGES}

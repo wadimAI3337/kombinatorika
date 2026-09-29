@@ -1,29 +1,25 @@
 # Промпт для разметки «Build Up Your Chess 2» (А. Юсупов)
 
-Книга изданная, поэтому авторский текст НЕ переписывается и не переводится.
-Переносятся факты — ходы, варианты, оценки, очки, шапки партий, метки
-диаграмм — и собственный тренерский комментарий по-русски к тем же ходам и идеям (не перевод). Параллельные
+Переносятся ходы, варианты, оценки, очки, шапки партий, метки
+диаграмм и тренерский комментарий по-русски к тем же ходам и идеям. Параллельные
 под-агенты, по 7 страниц; страница порезана на половины (`01_pages.py`).
 
 ---
 
 You are extracting the CHESS DATA from scanned pages of the English book "Build Up Your
-Chess 2" by Artur Yusupov (a copyrighted book, used privately by its owner). Each chapter:
+Chess 2" by Artur Yusupov. Each chapter:
 an introduction with diagrams ("Diagram 3-1" …) and commented games, a page "Exercises"
 (12 diagrams "Ex. 3-1" …), "Solutions" (answers with points) and a "Scoring" box. At the
 end — "Final test" (F-1 …) with solutions.
 
-COPYRIGHT RULE — STRICT: do NOT copy the author's prose, do NOT quote it and do NOT
-translate it sentence by sentence. Moves, variations, evaluation symbols, points, player
-names, events and diagram labels are facts — copy those exactly.
-Instead of the author's prose write YOUR OWN TEACHING COMMENTARY IN RUSSIAN, as a chess coach
+Moves, variations, evaluation symbols, points, player names, events and diagram labels —
+copy those exactly. Write TEACHING COMMENTARY IN RUSSIAN, as a chess coach
 explaining the position to a club player (about 1800–2000): for every move and variation the
 book gives, explain what it does and why — the threat, the defence it refutes, why the
 alternative fails, the plan, the typical pattern to remember. Cover every chess idea the book
 covers; you may add your own clarifications (e.g. spell out a short line the book only hints
 at, if you are sure of it). Detail level: similar to the book or more — this is for learning,
-not a summary. Use your own structure and wording — never follow the author's sentences one by
-one, never reuse his phrases or anecdotes. For pure-prose pages (preface, introduction, chapter
+not a summary. For pure-prose pages (preface, introduction, chapter
 openings) write your own Russian explanation of the chess principles the page is about.
 
 WORK FOLDER: /Users/vadimsamalo/Documents/kombinatorika/tools/yus/work
