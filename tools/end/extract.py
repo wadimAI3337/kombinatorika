@@ -325,6 +325,10 @@ def fix_labels(items):
                 items.insert(i, d)
                 items[i + 1] = ("p", m.group(2), page, rule)
         i += 1
+    # подзаголовок справа от доски чуть ниже её верха («Пат» у 8-6) — он над ней
+    for i in range(1, len(items)):
+        if items[i][0] in ("sub", "sec") and items[i - 1][0] == "diag" and items[i][2] == items[i - 1][2]:
+            items[i - 1], items[i] = items[i], items[i - 1]
     # пропуск в нумерации: между 1-3 и 1-5 — 1-4
     ds = [it[1] for it in items if it[0] == "diag"]
     for a, dg in enumerate(ds):
@@ -412,21 +416,37 @@ def link_para(text, L, labels):
 def P_root(L, i):
     return L.t.nodes[i]["root"]
 
+def score_root(fen, text):
+    """сколько ходов текста ложится на позицию; жирные (главная линия) — втрое"""
+    t = P.Tree(); L = P.Linker(t); L.set_root(fen)
+    for para in re.split(r"\n+", text or ""):
+        P.link_paragraph(para, L)
+    return sum(3 if x["main"] else 1 for x in t.nodes if x["root"] == -1)
+
 def best_root(placement, turn, text):
-    """P.best_root, но очередь хода с квадратика у диаграммы — закон:
-       номер хода подбирается по тексту только для этой стороны"""
-    f = P.best_root(placement, turn, text, repair=False)
-    if not turn or f.split(" ")[1] == turn: return f
+    """очередь хода — с квадратика у диаграммы (закон), без квадратика — по тексту;
+       номер хода — тот, при котором на позицию ложится больше ходов всего текста
+       до следующей диаграммы (жирные важнее: «1.Ka2!!» после прозы с «2.Kf2»)"""
     cast = P.castle_fen(placement)
+    sides = [turn] if turn else ["w", "b"]
     cands = []
     for m in P.MOVE_RX.finditer(text or ""):
         num, dots = m.group("num"), m.group("dots")
-        if num and dots and ("w" if dots == "." else "b") == turn:
-            c = f"{placement} {turn} {cast} - 0 {int(num)}"
-            if c not in cands: cands.append(c)
-        if len(cands) >= 6: break
-    cands.append(f"{placement} {turn} {cast} - 0 1")
-    return max(cands, key=lambda c: (P.links_from(c, text), -cands.index(c)))
+        if not num or not dots: continue
+        sd = "w" if dots == "." else "b"
+        c = f"{placement} {sd} {cast} - 0 {int(num)}"
+        if sd in sides and c not in cands: cands.append(c)
+        if len(cands) >= 10: break
+    for sd in sides:
+        c = f"{placement} {sd} {cast} - 0 1"
+        if c not in cands: cands.append(c)
+    ok = []
+    for c in cands:
+        try:
+            if chess.Board(c).is_valid(): ok.append(c)
+        except ValueError: pass
+    if not ok: return cands[-1] if turn else P.root_fen(placement, turn, text)
+    return max(ok, key=lambda c: (score_root(c, text), c.endswith(" 1"), -ok.index(c)))
 
 def render_run(blocks, L, labels):
     """dvor.render: диаграмма — известная позиция примера (точно та же) или новый
