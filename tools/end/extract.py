@@ -68,7 +68,21 @@ P.Linker.candidates = candidates
 _pplay = P.Linker.play
 def pplay(self, tok, num, dots, prev_ply, bold):
     self._tok = re.sub(r"[-:x+#!?]", "", tok) if num else None
-    try: return _pplay(self, tok, num, dots, prev_ply, bold)
+    try:
+        r = _pplay(self, tok, num, dots, prev_ply, bold)
+        # «Другая попытка черных: 1...Kg7 …» — возврат к прежнему примеру раздела:
+        # номерной ход, не легший в текущем, ищется во всех позициях раздела
+        if r[0] is None and num and getattr(self, "sec0", None) is not None and self.cur is not None:
+            n0, r0 = self.sec0
+            allx = [-(k + 1) for k in range(r0, len(self.t.roots))] + \
+                   [i for i in range(n0, len(self.t.nodes)) if not self.t.nodes[i].get("threat")]
+            extra = [x for x in allx if x not in self.scope]
+            if extra:
+                sc = self.scope
+                self.scope = extra + sc
+                r = _pplay(self, tok, num, dots, prev_ply, bold)
+                if r[0] is None: self.scope = sc
+        return r
     finally: self._tok = None
 P.Linker.play = pplay
 
@@ -358,16 +372,34 @@ def solutions(pages):
 
 REF = re.compile(r"(?:диаграмм\w*|позици\w+)\s+(\d+-\d+)")
 
+SIDE = re.compile(r"[Пп]ри\s+(?:своем\s+)?ходе\s+(белых|черных)")
+
+def twin(L, side):
+    """та же позиция диаграммы, но ход другой стороны («При ходе белых решает …»)"""
+    base = getattr(L, "diag", None)
+    if base is None: return None
+    f = L.t.fen(base).split(" ")
+    if f[1] == side: return base
+    key = (base, side)
+    tw = L.__dict__.setdefault("twins", {})
+    if key not in tw:
+        f[1] = side; f[3] = "-"
+        b = chess.Board(" ".join(f))
+        tw[key] = L.t.add_root(b.fen()) if b.is_valid() else None
+    return tw[key]
+
 def link_para(text, L, labels):
     """абзац -> сегменты; после «диаграмме 1-1» ходы ищутся от той диаграммы,
-       после абзаца положение возвращается"""
-    cuts = [m for m in REF.finditer(text) if m.group(1) in labels]
+       после «при ходе белых» — от диаграммы с ходом белых; после абзаца
+       положение возвращается"""
+    cuts = [(m, labels[m.group(1)]) for m in REF.finditer(text) if m.group(1) in labels]
+    cuts += [(m, twin(L, "w" if m.group(1) == "белых" else "b")) for m in SIDE.finditer(text)]
+    cuts = sorted((c for c in cuts if c[1] is not None), key=lambda c: c[0].start())
     if not cuts: return P.link_paragraph(text, L)
     st = (L.cur, L.main, list(L.scope), list(L.stack))
     segs, pos = [], 0
-    for m in cuts:
+    for m, r in cuts:
         segs += P.link_paragraph(text[pos:m.end()], L); pos = m.end()
-        r = labels[m.group(1)]
         L.cur, L.main, L.scope, L.stack = r, r, [r] + [i for i, n in enumerate(L.t.nodes) if P_root(L, i) == r], []
     segs += P.link_paragraph(text[pos:], L)
     L.cur, L.main, L.scope, L.stack = st[0], st[1], st[2], st[3]
@@ -409,6 +441,7 @@ def render_run(blocks, L, labels):
             for nid in reversed(L.scope):
                 f = L.t.fen(nid).split(" ")
                 if f[0] == placement and (pl["turn"] is None or f[1] == pl["turn"]): found = nid; break
+            if pl.get("q"): L.sec0 = (len(L.t.nodes), len(L.t.roots))     # позиция «?» — отдельный пример
             if found is None:
                 nxt = []
                 for x in blocks[i + 1:]:
@@ -418,6 +451,7 @@ def render_run(blocks, L, labels):
             else:
                 L.cur = found; L.main = found; L.stack = []
             if pl.get("n"): labels.setdefault(pl["n"], found)
+            L.diag = found
             out.append({"t": "d", "n": found, "small": pl["small"]}); continue
         if k == "p": out.append({"t": "p", "s": link_para(pl, L, labels)})
     return out
@@ -427,6 +461,7 @@ def title_case(t):
 
 def render_chapter(ch, sols):
     t = P.Tree(); L = P.Linker(t)
+    L.sec0 = (0, 0)
     labels = {}
     out, run, meta = [], [], []
     nsec = [0]
@@ -438,6 +473,7 @@ def render_chapter(ch, sols):
         out.extend(res); run.clear(); meta.clear()
     def reset():
         L.scope = []; L.cur = None; L.main = None; L.stack = []
+        L.sec0 = (len(t.nodes), len(t.roots)); L.diag = None
     hide = False
     def add(kind, pl, m):
         run.append({"kind": kind, "pl": pl}); meta.append(m)
@@ -454,7 +490,7 @@ def render_chapter(ch, sols):
             head = (dg.get("n") or "") + (" | " + cap if cap else "")
             if dg.get("hard"): head += (" · " if cap else " | ") + "повышенной сложности"
             if head: add("game", head, {})
-            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}"},
+            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}", "q": dg.get("q")},
                 {"q": 1} if dg.get("q") else {})
             hide = bool(dg.get("q"))
             sol = sols.get(dg.get("n")) if dg.get("q") else None
@@ -474,6 +510,16 @@ def render_chapter(ch, sols):
             if rule: m["r"] = 1
             add("p", pl, m)
     go()
+    # диаграмма посреди варианта, до которого текст дошёл позже (ходы легли в
+    # дерево прежнего примера): у её корня нет ходов — ставим её на тот узел
+    kids = {n["parent"] for n in t.nodes}
+    for b in out:
+        if b["t"] == "d" and b.get("n") is not None and b["n"] < 0 and b["n"] not in kids:
+            f = " ".join(t.fen(b["n"]).split(" ")[:2])
+            same = [i for i, n in enumerate(t.nodes) if " ".join(n["fen"].split(" ")[:2]) == f]
+            if not same:        # квадратик у диаграммы бывает о другой стороне
+                same = [i for i, n in enumerate(t.nodes) if n["fen"].split(" ")[0] == f.split(" ")[0]]
+            if same: b["n"] = same[0]
     L.bad = [x for x in L.bad if not Y.LINE(x)]
     return out, t, L.bad
 
