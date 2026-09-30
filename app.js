@@ -1512,7 +1512,7 @@ function readBuild(list, group){
         face:d ? pt.fenOf(d.n) : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         s:(ch.secs ? ch.secs + " " + unit(ch.secs) + " · " : "") + ch.diags + " " + wordDiags(ch.diags) });
     }
-    const nch = secs.filter(x => !/^Предисловие/.test(x.t)).length;
+    const nch = secs.filter(x => !/^(Предисловие|Введение)/.test(x.t)).length;
     BOOKS.push({ id:yb.id, kind:"dvor", read:true, group, title:yb.title,
       meta:yb.author + " · " + nch + " " + wordCh(nch) + " · " + nsec + " " + unit(nsec),
       puzzles:[], secs, intros:[] });
