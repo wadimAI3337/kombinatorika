@@ -878,6 +878,7 @@ function renderGroup(){
 const wordBook = n => (n % 10 === 1 && n % 100 !== 11) ? "книга"
   : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "книги" : "книг";
 
+const b_n = b => b.n != null && b.n !== "";
 function renderSections(){
   grp = GROUPS.find(g => g.id === groupOf(book)) || grp;
   document.querySelectorAll(".gcrumb").forEach(el => el.textContent = grp.title);
@@ -886,7 +887,9 @@ function renderSections(){
   if (rs){
     const el = document.createElement("button");
     el.className = "introbar";
-    el.innerHTML = `<span class="ib">🔖</span><span><h3>Продолжить чтение</h3><p>${esc(rs.t)}${/^\d/.test(rl.sec) ? " · разбор №" + esc(rl.sec.split("-")[0]) : ""}</p></span><span class="go">Открыть →</span>`;
+    const hb = rs.intro.find(b => b.t === "s" && b.key === rl.sec);
+    const where = hb && b_n(hb) ? " · разбор №" + esc(String(hb.n)) : hb ? " · " + esc(hb.x) : "";
+    el.innerHTML = `<span class="ib">🔖</span><span><h3>Продолжить чтение</h3><p>${esc(rs.t)}${where}</p></span><span class="go">Открыть →</span>`;
     el.onclick = () => rdOpenRead(book, rs, rl.sec);
     ih.appendChild(el);
   }
@@ -1356,6 +1359,7 @@ const GROUPS = [
   { id:"prophy",   title:"Профилактика", meta:"Книги / Профилактика · введение и упражнения", pc:"K" },
   { id:"yusupov",  title:"Артур Юсупов", meta:"Книги · главы: введение и упражнения", pc:"Q" },
   { id:"middle",   title:"Миттельшпиль", meta:"Книги · план игры, главы для чтения", pc:"B" },
+  { id:"endgame",  title:"Эндшпиль",     meta:"Книги · теория окончаний, главы для чтения", pc:"P" },
 ];
 const groupOf = b => b.group || (/^pos\d/.test(b.id) ? "strategy" : "tactics");
 let grp = GROUPS[0];
@@ -1489,31 +1493,35 @@ function yusBuild(){
 /* ===== Книги для чтения (yak.js): глава = карточка, открывается читалкой =====
    Задач нет — в главе разборы партий «№N» с диаграммами, все ходы кликаются.
    Одно дерево вариантов на главу, как у введений dvor.js. */
-let yakState = "idle", yakBuilt = false;
-function yakBuild(){
-  if (yakBuilt || !window.YAK) return;
-  yakBuilt = true;
-  for (const yb of window.YAK){
+let yakState = "idle", endState = "idle";
+/* глава -> карточка. У Яковлева единица чтения — разбор «№N», у Дворецкого —
+   раздел главы («Ключевые поля»): у него ключ key готов («1.3»), номера нет. */
+function readBuild(list, group){
+  for (const yb of list){
     const secs = [], seen = {};
+    const unit = yb.unit === "sec" ? wordSecs : wordGames;
     let nsec = 0;
     for (const ch of yb.chapters){
       /* номера разборов в книге иногда повторяются (опечатки) — ключ уникальный */
-      ch.intro.forEach(b => { if (b.t === "s"){ const n = String(b.n); seen[n] = (seen[n] || 0) + 1; b.key = seen[n] > 1 ? n + "-" + seen[n] : n; } });
+      ch.intro.forEach(b => { if (b.t === "s" && !b.key){ const n = String(b.n); seen[n] = (seen[n] || 0) + 1; b.key = seen[n] > 1 ? n + "-" + seen[n] : n; } });
       const pt = mkTree({ roots:ch.roots, nodes:ch.nodes });
       const d = ch.intro.find(b => b.t === "d" && b.n != null && pt.fenOf(b.n));
       const title = ch.n ? "Глава " + ch.n + ". " + ch.title : ch.title;
       nsec += ch.secs;
       secs.push({ id:yb.id + "c" + ch.n, t:title, read:true, pt, intro:ch.intro, items:[],
         face:d ? pt.fenOf(d.n) : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        s:(ch.secs ? ch.secs + " " + wordGames(ch.secs) + " · " : "") + ch.diags + " " + wordDiags(ch.diags) });
+        s:(ch.secs ? ch.secs + " " + unit(ch.secs) + " · " : "") + ch.diags + " " + wordDiags(ch.diags) });
     }
-    BOOKS.push({ id:yb.id, kind:"dvor", read:true, group:"middle", title:yb.title,
-      meta:yb.author + " · " + (secs.length - 1) + " " + wordCh(secs.length - 1) + " · " + nsec + " " + wordGames(nsec),
+    const nch = secs.filter(x => !/^Предисловие/.test(x.t)).length;
+    BOOKS.push({ id:yb.id, kind:"dvor", read:true, group, title:yb.title,
+      meta:yb.author + " · " + nch + " " + wordCh(nch) + " · " + nsec + " " + unit(nsec),
       puzzles:[], secs, intros:[] });
   }
 }
 const wordGames = n => (n % 10 === 1 && n % 100 !== 11) ? "разбор"
   : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "разбора" : "разборов";
+const wordSecs = n => (n % 10 === 1 && n % 100 !== 11) ? "раздел"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "раздела" : "разделов";
 const wordCh = n => (n % 10 === 1 && n % 100 !== 11) ? "глава"
   : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? "главы" : "глав";
 const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
@@ -1521,10 +1529,18 @@ const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
 (function yakLoad(){
   yakState = "loading";
   loadScript("yak.js", () => {
-    yakState = "ok"; yakBuild();
+    yakState = "ok"; if (window.YAK) readBuild(window.YAK, "middle");
     if (view === "books") renderBooks();
     if (view === "group") renderGroup();
   }, () => { yakState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
+})();
+(function endLoad(){
+  endState = "loading";
+  loadScript("end.js", () => {
+    endState = "ok"; if (window.END) readBuild(window.END, "endgame");
+    if (view === "books") renderBooks();
+    if (view === "group") renderGroup();
+  }, () => { endState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
 })();
 /* Прогресс чтения (kombi-read, синхронизируется): по книге — прочитанные
    разборы done{№: время}, заметки notes{№: текст}, last — где остановился.
@@ -1605,6 +1621,20 @@ function rdDecorate(){
     }
     el = x;
   }
+  /* позиции «?» (эндшпиль): ответ собран в .rdans сразу за диаграммой */
+  box.querySelectorAll(".rdans").forEach(wrap => {
+    let p = wrap.previousElementSibling;
+    while (p && !p.matches(".rddiag, .rdsech")) p = p.previousElementSibling;
+    if (!quizOn) return;
+    wrap.classList.add("rdquiz");
+    const btn = document.createElement("button");
+    btn.className = "rdreveal";
+    btn.innerHTML = "<b>Подумай сам</b><span>Решение и оценка движка скрыты · нажми, чтобы открыть</span>";
+    wrap.before(btn);
+    const it = { wrap, node:p && p.matches(".rddiag") ? +p.dataset.n : null, open:false };
+    btn.onclick = () => { it.open = true; wrap.classList.add("open"); btn.remove(); rdRenderEval(); if (rdTab === "tree") rdSetTab("tree"); };
+    rd.quiz.push(it);
+  });
   box.onchange = null;
   box.oninput = e => {
     const ta = e.target.closest("textarea.rdnote");
@@ -1625,7 +1655,7 @@ function rdDecorate(){
 }
 /* клетка позиции задания, ответ на которое ещё закрыт: движок молчит */
 const rdQuizHold = () => rd && rd.quiz && rd.quiz.some(q => !q.open && q.node != null && q.node === rd.cur);
-const loadState = id => id === "prophy" ? dvorState : id === "yusupov" ? yusState : id === "middle" ? yakState : "ok";
+const loadState = id => id === "prophy" ? dvorState : id === "yusupov" ? yusState : id === "middle" ? yakState : id === "endgame" ? endState : "ok";
 function rdOpenChapter(b, s){
   const head = `<h3 class="rdh">${esc(s.t)}</h3>` + (s.contents ? `<p class="rdcap">${esc(s.contents)}</p>` : "");
   rdOpen({ b, pt:s.pt, here:"Введение · " + s.t }, head + rdHtml(s.intro, s.pt));
@@ -1644,19 +1674,22 @@ function rdSegs(segs){
     : `<button class="bm${x.b ? " main" : ""}${x.w ? " word" : ""}" data-n="${x.m}">${x.w ? esc(x.s) : bookMv(x.s)}</button>`).join("");
 }
 function rdHtml(blocks, pt){
-  let h = "";
+  let h = "", ans = false;
   for (const b of blocks){
-    if (b.t === "h") h += `<h3 class="rdh">${esc(niceTitle(b.x))}</h3>`;
+    /* ответ к позиции «?» (эндшпиль): подряд идущие блоки h:1 — в одну обёртку */
+    if (!!b.h !== ans){ h += ans ? "</div>" : '<div class="rdans">'; ans = !ans; }
+    if (b.t === "u") h += `<h5 class="rdsub">${esc(b.x)}</h5>`;
+    else if (b.t === "h") h += `<h3 class="rdh">${esc(niceTitle(b.x))}</h3>`;
     else if (b.t === "s") h += `<h4 class="rdsec" data-sec="${esc(b.key || String(b.n))}">${b.n ? "№" + esc(b.n) + ". " : ""}${esc(b.x)}</h4>`;
     else if (b.t === "g"){ const [a, c] = b.x.split(" | "); h += `<div class="rdgame">${esc(a)}${c ? "<span>" + esc(c) + "</span>" : ""}</div>`; }
     else if (b.t === "c") h += `<p class="rdcap">${rdSegs(b.s)}</p>`;
-    else if (b.t === "p") h += `<p>${b.s ? rdSegs(b.s) : esc(b.x || "")}</p>`;
+    else if (b.t === "p") h += `<p${b.r ? ' class="rdrule"' : ""}>${b.s ? rdSegs(b.s) : esc(b.x || "")}</p>`;
     else if (b.t === "d" && b.n != null && pt){
       const f = pt.fenOf(b.n);
       if (f) h += `<button class="rddiag${b.small ? " small" : ""}" data-n="${b.n}" title="Поставить на доску">${mini(f, false)}</button>`;
     }
   }
-  return h;
+  return h + (ans ? "</div>" : "");
 }
 /* ===== Дерево вариантов: все ходы открытого текста деревом —
    главная линия сверху, ответвления с отступом, угрозы пунктиром ===== */
