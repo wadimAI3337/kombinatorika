@@ -77,6 +77,9 @@ def pplay(self, tok, num, dots, prev_ply, bold):
             allx = [-(k + 1) for k in range(r0, len(self.t.roots))] + \
                    [i for i in range(n0, len(self.t.nodes)) if not self.t.nodes[i].get("threat")]
             extra = [x for x in allx if x not in self.scope]
+            if bold:        # жирный — продолжение главной линии: её узлы проверяются первыми
+                extra = [x for x in extra if x < 0 or not self.t.nodes[x]["main"]] + \
+                        [x for x in extra if x >= 0 and self.t.nodes[x]["main"]]
             if extra:
                 sc = self.scope
                 self.scope = extra + sc
@@ -446,7 +449,9 @@ def best_root(placement, turn, text):
             if chess.Board(c).is_valid(): ok.append(c)
         except ValueError: pass
     if not ok: return cands[-1] if turn else P.root_fen(placement, turn, text)
-    return max(ok, key=lambda c: (score_root(c, text), c.endswith(" 1"), -ok.index(c)))
+    # при равенстве — номер из текста (он первым в списке), «1» — последним:
+    # сбитый номер разборщик тоже привяжет, и счёт выйдет тот же
+    return max(ok, key=lambda c: (score_root(c, text), -ok.index(c)))
 
 def render_run(blocks, L, labels):
     """dvor.render: диаграмма — известная позиция примера (точно та же) или новый
@@ -469,7 +474,10 @@ def render_run(blocks, L, labels):
                     if x["kind"] == "p": nxt.append(x["pl"])
                 found = L.set_root(best_root(placement, pl["turn"], "\n".join(nxt)))
             else:
-                L.cur = found; L.main = found; L.stack = []
+                # диаграмма в конце побочного варианта главную линию не сдвигает:
+                # жирный ход после неё («Партия продолжалась: 14...Nd6») — к главной
+                if found < 0 or L.t.nodes[found]["main"] or L.main is None: L.main = found
+                L.cur = found; L.stack = []
             if pl.get("n"): labels.setdefault(pl["n"], found)
             L.diag = found
             out.append({"t": "d", "n": found, "small": pl["small"]}); continue
