@@ -25,10 +25,10 @@ MIN, MAX = 480, 580
 def load():
     boards = json.load(open(f"{W}/boards.json"))
     fens = {(r["p"], r["k"]): r["fen"] for r in json.load(open(f"{W}/fens.json"))}
-    pages = sorted(int(f[1:4]) for f in os.listdir(f"{W}/txt") if re.fullmatch(r"p\d{3}\.txt", f))
+    pages = sorted(int(f[1:4]) for f in os.listdir(os.path.join(HERE, "txt")) if re.fullmatch(r"p\d{3}\.txt", f))
     items, warn = [], []
     for p in pages:
-        txt = open(f"{W}/txt/p{p:03d}.txt", encoding="utf-8").read()
+        txt = open(os.path.join(HERE, f"txt/p{p:03d}.txt"), encoding="utf-8").read()
         txt = txt.translate(str.maketrans("♔♕♖♗♘♚♛♜♝♞", "KQRBNKQRBN"))
         txt = re.sub(r"\+[-–]", "+−", txt); txt = re.sub(r"[-–]\+", "−+", txt)
         real = [k for k, b in enumerate(boards.get(str(p), [])) if MIN <= b[2] <= MAX]
