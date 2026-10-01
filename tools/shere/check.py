@@ -19,7 +19,7 @@ for ch in data[0]["chapters"]:
             if not isinstance(s, dict) or s.get("w"): continue
             tot += 1
             n = nodes[s["m"]]; b = chess.Board(f(n[0])); mv = chess.Move.from_uci(n[1])
-            t = re.sub(r"^\d+\s*(\.\.\.|…|\.)\s*", "", s["s"]).rstrip("+#!?")
+            t = re.sub(r"^(\d+\s*(\.\.\.|…|\.)|\.\.\.|…)\s*", "", s["s"]).rstrip("+#!?")
             ok = True
             if t in ("0-0", "O-O", "0-0-0", "O-O-O"):
                 ok = b.is_castling(mv) and (len(t) > 3) == (chess.square_file(mv.to_square) == 2)

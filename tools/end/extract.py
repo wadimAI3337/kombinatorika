@@ -481,6 +481,8 @@ def render_run(blocks, L, labels):
             h = [x for x in (getattr(L, "hist", None) or []) if x[1] is not None]
             if h:
                 L.cur, L.main, L.scope = h[0][0], h[0][1], list(h[0][2]); L.stack = []; L.hist = []
+            elif L.main is not None:        # без доски-отступления: к последнему ходу главной линии
+                L.cur = L.main; L.stack = []
             continue
         if k == "diag":
             placement = pl["fen"]
