@@ -51,6 +51,8 @@ P.repair_root = lambda *a, **k: None
 # новая диаграмма — новый пример: ходы ищутся только в нём
 _set_root = P.Linker.set_root
 def set_root(self, fen):
+    # «возвращаемся к партии» ([[RESUME]]) — состояние до первой новой диаграммы раздела
+    if getattr(self, "hist", None) is not None: self.hist.append((self.cur, self.main, list(self.scope)))
     self.scope = []
     return _set_root(self, fen)
 P.Linker.set_root = set_root
@@ -475,6 +477,11 @@ def render_run(blocks, L, labels):
     for i, b in enumerate(blocks):
         k, pl = b["kind"], b["pl"]
         if k == "game": out.append({"t": "g", "x": pl}); continue
+        if k == "resume":
+            h = [x for x in (getattr(L, "hist", None) or []) if x[1] is not None]
+            if h:
+                L.cur, L.main, L.scope = h[0][0], h[0][1], list(h[0][2]); L.stack = []; L.hist = []
+            continue
         if k == "diag":
             placement = pl["fen"]
             found = None
@@ -483,11 +490,20 @@ def render_run(blocks, L, labels):
                 if f[0] == placement and (pl["turn"] is None or f[1] == pl["turn"]): found = nid; break
             if pl.get("q"): L.sec0 = (len(L.t.nodes), len(L.t.roots))     # позиция «?» — отдельный пример
             if found is None:
-                nxt = []
+                nxt, far = [], False
                 for x in blocks[i + 1:]:
-                    if x["kind"] in ("diag", "game"): break
+                    if x["kind"] == "game": break
+                    if x["kind"] == "diag":
+                        # до следующей доски номерных ходов нет — номер берём дальше по тексту
+                        # (только для первой доски партии — после шапки)
+                        if not (i == 0 or blocks[i - 1]["kind"] == "game") or \
+                           any(m.group("num") and m.group("dots") for m in P.MOVE_RX.finditer("\n".join(nxt))): break
+                        far = True; continue
                     if x["kind"] == "p": nxt.append(x["pl"])
-                found = L.set_root(best_root(placement, pl["turn"], "\n".join(nxt)))
+                if pl.get("num") and pl.get("turn"):     # номер хода указан в разметке
+                    found = L.set_root(f"{placement} {pl['turn']} {P.castle_fen(placement)} - 0 {pl['num']}")
+                else:
+                    found = L.set_root(best_root(placement, pl["turn"], "\n".join(nxt)))
             else:
                 # диаграмма в конце побочного варианта главную линию не сдвигает:
                 # жирный ход после неё («Партия продолжалась: 14...Nd6») — к главной
@@ -511,12 +527,12 @@ def render_chapter(ch, sols):
     def go():
         if not run: return
         res = render_run(run, L, labels)
-        for b, m in zip(res, meta):
+        for b, m in zip(res, [m for m in meta if m is not None]):
             b.update(m)
         out.extend(res); run.clear(); meta.clear()
     def reset():
         L.scope = []; L.cur = None; L.main = None; L.stack = []
-        L.sec0 = (len(t.nodes), len(t.roots)); L.diag = None
+        L.sec0 = (len(t.nodes), len(t.roots)); L.diag = None; L.hist = []
     hide = False
     def add(kind, pl, m):
         run.append({"kind": kind, "pl": pl}); meta.append(m)
@@ -533,7 +549,7 @@ def render_chapter(ch, sols):
             head = (dg.get("n") or "") + (" | " + cap if cap else "")
             if dg.get("hard"): head += (" · " if cap else " | ") + "повышенной сложности"
             if head: add("game", head, {})
-            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}", "q": dg.get("q")},
+            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}", "q": dg.get("q"), "num": dg.get("num")},
                 {"q": 1} if dg.get("q") else {})
             hide = bool(dg.get("q"))
             sol = sols.get(dg.get("n")) if dg.get("q") else None
@@ -546,6 +562,8 @@ def render_chapter(ch, sols):
                         add("p", spl, {"h": 1, "sol": 1})
                 hide = False
             continue
+        if kind == "resume":
+            add("resume", None, None); continue
         if kind == "p" and pl.strip("* ").upper() == ch["title"].upper(): continue   # «ПРЕДИСЛОВИЕ» текстом
         if kind == "p":
             # ответ к позиции «?» — всё до следующей диаграммы или заголовка
