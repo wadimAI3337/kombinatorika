@@ -59,6 +59,10 @@ P.Linker.set_root = set_root
 _cands = P.Linker.candidates
 def candidates(self, want):
     c = _cands(self, want)
+    # корень угрозы («грозит 33.Bc6») — не позиция партии: номерной ход туда не ищем
+    thr = {n["parent"] for n in self.t.nodes if n.get("threat")}
+    c = [x for x in c if not (x < 0 and x in thr and x != self.cur)
+         and not (x >= 0 and self.t.nodes[x].get("threat"))]
     if getattr(self, "_tok", None) and self.cur is not None and self.cur >= 0 and len(c) > 1:
         par = self.t.nodes[self.cur]["parent"]
         if par in c and self._tok == self.t.nodes[self.cur]["san"].rstrip("+#").replace("x", ":").replace(":", ""):
@@ -69,6 +73,17 @@ _pplay = P.Linker.play
 def pplay(self, tok, num, dots, prev_ply, bold):
     self._tok = re.sub(r"[-:x+#!?]", "", tok) if num else None
     try:
+        if not num and getattr(self, "lone", False) and self.cur is not None:
+            # ход без номера посреди прозы («угрозу хода Bb7») — только у текущей
+            # позиции и на её пути к корню, а не в любой позиции раздела
+            path, n = [], self.cur
+            while n is not None:
+                path.append(n); n = self.t.parent(n)
+            old = self.scope; self.scope = path
+            try: r = _pplay(self, tok, num, dots, prev_ply, bold)
+            finally:
+                self.scope = old + [x for x in self.scope if x not in path and x not in old]
+            return r
         r = _pplay(self, tok, num, dots, prev_ply, bold)
         # «Другая попытка черных: 1...Kg7 …» — возврат к прежнему примеру раздела:
         # номерной ход, не легший в текущем, ищется во всех позициях раздела
