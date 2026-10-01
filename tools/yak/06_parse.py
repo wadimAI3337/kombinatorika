@@ -90,6 +90,8 @@ def play(self, tok, num, dots, prev_ply, bold):
     if nid is None and num: nid, pp = renumber(self, tok, num, dots, bold)
     NUMBERED[0] = False
     self.fail = nid is None
+    # голое поле («32.Bc5(c7) Kg7») — не ход: цепочку не рвёт
+    if nid is None and not num and re.fullmatch(r"[a-h][1-8]", tok): self.fail = fail0
     if nid is None or not num: return nid, pp
     want = P.tok_ply(num, dots, None)
     n = self.t.nodes[nid]
@@ -98,6 +100,20 @@ def play(self, tok, num, dots, prev_ply, bold):
     if n["parent"] == cur0 and n["ply"] % 2 == (want + 1) % 2 and not fail0: return nid, pp
     del self.t.nodes[n0:]; del self.t.roots[r0:]
     self.cur, self.main, self.scope, self.stack = st0[0], st0[1], st0[2], st0[3]
+    # «Создана угроза 52...Rb5+» после 51...Rc6: ход той же стороны, что сделала
+    # последний ход, лёг на позицию диаграммы как «сбитый номер» и откачен —
+    # пробуем его угрозой от текущей позиции (без корней в области поиска)
+    if cur0 is not None and cur0 >= 0 and getattr(self, "lone", False) and not fail0:
+        sc = self.scope; self.scope = [x for x in sc if x >= 0 and self.t.ply(x) != want]
+        NUMBERED[0] = True
+        nid, pp = _play(self, tok, num, dots, prev_ply, bold)
+        NUMBERED[0] = False
+        self.scope = sc + [x for x in self.scope if x not in sc]
+        if nid is not None and self.t.nodes[nid].get("threat") and self.t.nodes[nid]["ply"] == want + 1:
+            self.fail = False
+            return nid, pp
+        del self.t.nodes[n0:]; del self.t.roots[r0:]
+        self.cur, self.main, self.scope, self.stack = st0[0], st0[1], st0[2], st0[3]
     self.fail = True
     return None, want
 P.Linker.play = play
