@@ -28,7 +28,7 @@ for name, mask, lm in (("L", ~dark, L), ("D", dark, D)):
         top = np.argsort(km.cluster_centers_[blk] - km.cluster_centers_[1 - blk])[-200:]
         names[q] = np.where(X[q][:, top].mean(1) > .6, "q", "Q")
     out[:, mask] = names.reshape(N, -1)
-FIX = {(26, 0, "g5"): "q", (65, 1, "b8"): "q", (65, 1, "c6"): "Q", (68, 0, "d4"): "Q", (75, 0, "f6"): "q", (120, 1, "e5"): "q"}      # цвет ферзя, проверено глазами
+FIX = {(26, 0, "g5"): "q", (65, 1, "b8"): "q", (65, 1, "c6"): "Q", (68, 0, "d4"): "Q", (75, 0, "f6"): "q", (120, 1, "e5"): "q", (130, 0, "g5"): "q"}      # цвет ферзя, проверено глазами
 where = {(p, k): i for i, (p, k, sz) in enumerate(meta)}
 for (p, k, sq), pc in FIX.items():
     out[where[(p, k)], (8 - int(sq[1])) * 8 + "abcdefgh".index(sq[0])] = pc
