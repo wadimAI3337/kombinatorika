@@ -7,8 +7,11 @@ yak/06_parse.py и dvor/06_parse.py. Здесь только разметка э
   [[GAME]] Игроки | Турнир     шапка партии — единица «прочитано»
   [[H]] Заголовок              заголовок без партии
   [[DIAG]]                     доска (число на странице = число найденных досок);
-                               [[DIAG ? b]] — упражнение (ответ скрыт), ход чёрных
+                               [[DIAG ? b]] — упражнение (ответ скрыт), ход чёрных;
+                               [[DIAG w 45]] — номер хода, когда по тексту его не угадать
   [[CONT]]                     страница начинается с продолжения абзаца
+  [[RESUME]]                   «Возвращаемся к партии»: ходы снова от позиции партии
+                               (до первой диаграммы-отступления в разделе)
   **…**                        жирные ходы (главная линия)
 Запуск: python3 06_parse.py [главы, по умолчанию 1]"""
 import json, re, os, sys, importlib.util
@@ -19,7 +22,7 @@ E = importlib.util.module_from_spec(spec); sys.modules["E"] = E
 cwd = os.getcwd(); os.chdir(os.path.join(HERE, "../end")); sys.path.insert(0, os.path.join(HERE, "../end"))
 spec.loader.exec_module(E); os.chdir(cwd)
 FIX = json.load(open(os.path.join(HERE, "fix_fens.json"))) if os.path.exists(os.path.join(HERE, "fix_fens.json")) else {}
-TAG = re.compile(r"\[\[(CHAPTER|GAME|H|DIAG|CONT)\s*([^\]]*)\]\]\s*(.*)$")
+TAG = re.compile(r"\[\[(CHAPTER|GAME|H|DIAG|CONT|RESUME)\s*([^\]]*)\]\]\s*(.*)$")
 MIN, MAX = 480, 580
 
 def load():
@@ -43,6 +46,8 @@ def load():
                     buf.append(l); first = False; continue
                 flush()
                 tag, arg, rest = m.groups()
+                if tag == "RESUME":
+                    items.append(("resume", None, p, None)); first = False; continue
                 if tag == "CONT":
                     if first: items.append(("cont", None, p, None))
                 elif tag == "DIAG":
@@ -50,6 +55,7 @@ def load():
                     fen = FIX.get(src) or (fens.get((p, real[k])) if k < len(real) else None)
                     a = arg.split() + rest.split()
                     items.append(("diag", {"n": None, "turn": next((x for x in a if x in ("w", "b")), None), "q": "?" in a,
+                                           "num": next((int(x) for x in a if x.isdigit()), None),
                                            "fen": fen, "src": src}, p, None)); k += 1
                 elif tag == "CHAPTER":
                     items.append(("chapno", arg.strip(), p, None)); items.append(("chaptitle", rest.strip(), p, None))
@@ -71,10 +77,23 @@ def load():
                 out[j] = ("p", prev[:-1] + it[1] if re.search(r"[а-яё]-$", prev) else prev + " " + it[1], out[j][2], None)
                 continue
         out.append(it)
-    return [x for x in out if x[0] != "cont"], warn
+    out = [x for x in out if x[0] != "cont"]
+    # «Вернемся к партии Рибли – Карпов»: шапка с тем же именем партии и пометкой
+    # «(продолжение)» — повторяем первую доску той партии, чтобы ходы легли на неё
+    first, res, last, need = {}, [], None, None
+    for it in out:
+        res.append(it)
+        if it[0] == "sec":
+            key = re.sub(r"\s*\(продолжение\)", "", it[1]); last = key
+            if "(продолжение)" in it[1] and key in first:
+                res.append(first[key]); need = None
+            else: need = key
+        elif it[0] == "diag" and last and need == last:
+            first[last] = it; need = None
+    return res, warn
 
 def main():
-    want = [int(x) for x in (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--no-main" else "0,1,2").split(",")]
+    want = [int(x) for x in (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--no-main" else "0,1,2,3").split(",")]
     items, warn = load()
     chs = [c for c in E.split_chapters(items) if c["n"] in want]
     res, allbad, tot = [], [], 0
