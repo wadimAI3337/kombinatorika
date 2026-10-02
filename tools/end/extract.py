@@ -65,6 +65,17 @@ def candidates(self, want):
     thr = {n["parent"] for n in self.t.nodes if n.get("threat")}
     c = [x for x in c if not (x < 0 and x in thr and x != self.cur)
          and not (x >= 0 and self.t.nodes[x].get("threat"))]
+    # текущий узел — угроза («Белые грозят как Ba3, так и Rc1. Не годится 28.Ba3»):
+    # её путь к корню обрывается на корне угрозы, поэтому номерной ход сперва
+    # ищется на пути от позиции, из которой угроза сделана (если номер недалеко —
+    # «16...Kg7» через 10 ходов после угрозы относится к другой ветке)
+    base = self.t.nodes[self.cur].get("base") if self.cur is not None and self.cur >= 0 and self.t.nodes[self.cur].get("threat") else None
+    if base is not None and self.t.ply(base) - want <= 8:
+        n, path = base, []
+        while n is not None:
+            if self.t.ply(n) == want and n in c: path.append(n)
+            n = self.t.parent(n)
+        c = path + [x for x in c if x not in path]
     # (но не когда предыдущий ход — план в прозе полной записью: «запланировал e6-e5. Однако на 31...e5»)
     if getattr(self, "_tok", None) and not getattr(self, "_prevlone", False) and self.cur is not None and self.cur >= 0 and len(c) > 1:
         par = self.t.nodes[self.cur]["parent"]
