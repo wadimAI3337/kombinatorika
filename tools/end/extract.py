@@ -65,7 +65,8 @@ def candidates(self, want):
     thr = {n["parent"] for n in self.t.nodes if n.get("threat")}
     c = [x for x in c if not (x < 0 and x in thr and x != self.cur)
          and not (x >= 0 and self.t.nodes[x].get("threat"))]
-    if getattr(self, "_tok", None) and self.cur is not None and self.cur >= 0 and len(c) > 1:
+    # (но не когда предыдущий ход — план в прозе полной записью: «запланировал e6-e5. Однако на 31...e5»)
+    if getattr(self, "_tok", None) and not getattr(self, "_prevlone", False) and self.cur is not None and self.cur >= 0 and len(c) > 1:
         par = self.t.nodes[self.cur]["parent"]
         if par in c and self._tok == self.t.nodes[self.cur]["san"].rstrip("+#").replace("x", ":").replace(":", ""):
             c = [x for x in c if x != par] + [par]
@@ -74,6 +75,8 @@ P.Linker.candidates = candidates
 _pplay = P.Linker.play
 def pplay(self, tok, num, dots, prev_ply, bold):
     self._tok = re.sub(r"[-:x+#!?]", "", tok) if num else None
+    self._prevlone = getattr(self, "_curlone", False)
+    self._curlone = getattr(self, "lone", False) and not num and "-" in tok
     try:
         if not num and getattr(self, "lone", False) and self.cur is not None:
             # ход без номера посреди прозы («угрозу хода Bb7») — только у текущей
