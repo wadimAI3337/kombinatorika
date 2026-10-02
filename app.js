@@ -5856,3 +5856,78 @@ window.KOMBI_APP = {
   show: show,
   gauge: gauge
 };
+
+/* ===== стрелки и кружки правой кнопкой на всех досках (как на lichess) =====
+   У доски задач (#board) это было своё. Здесь — для остальных: читалка
+   книг, разбор партии, дебюты, «Реализация перевеса». Правая кнопка
+   рисует (Shift — красная, Alt — синяя, Ctrl/⌘ — жёлтая, на одном
+   поле — кружок, повтор того же — стирает), левый клик убирает всё.
+   Доски перерисовываются целиком, поэтому рисунок живёт рядом и
+   возвращается, пока на доске та же позиция; сменилась — пропадает. */
+(function(){
+  const SH = new WeakMap();
+  const sqs = host => [...host.children].filter(x => x.classList && x.classList.contains("sq"));
+  const sig = host => sqs(host).map(s => { const u = s.querySelector("use"); return u ? u.getAttribute("href") : "-"; }).join("");
+  const center = (host, name) => { const i = sqs(host).findIndex(s => s.dataset.sq === name); return [i % 8 + .5, Math.floor(i / 8) + .5]; };
+  function paint(host){
+    const old = host.querySelector(":scope > svg.shp"); if (old) old.remove();
+    const st = SH.get(host); if (!st) return;
+    const list = st.list.slice(); if (st.drag) list.push(st.drag);
+    if (!list.length) return;
+    let g = "";
+    for (const s of list){
+      const col = SHCOL[s.c] || SHCOL.green, [ax, ay] = center(host, s.from);
+      if (s.from === s.to){ g += `<circle cx="${ax}" cy="${ay}" r=".435" fill="none" stroke="${col}" stroke-width=".07"/>`; continue; }
+      const [bx, by] = center(host, s.to), dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len, head = .26, hw = .115, sx = ax + ux * .22, sy = ay + uy * .22, ex = bx - ux * head, ey = by - uy * head;
+      g += `<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${col}" stroke-width=".095"/>` +
+        `<polygon points="${bx - ux * .04},${by - uy * .04} ${ex - uy * hw},${ey + ux * hw} ${ex + uy * hw},${ey - ux * hw}" fill="${col}"/>`;
+    }
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    host.insertAdjacentHTML("beforeend", `<svg class="shp" viewBox="0 0 8 8" preserveAspectRatio="none">${g}</svg>`);
+  }
+  function state(host){
+    let st = SH.get(host);
+    if (st) return st;
+    st = { list:[], drag:null, sig:sig(host) };
+    SH.set(host, st);
+    new MutationObserver(() => {
+      if (host.querySelector(":scope > svg.shp") || !sqs(host).length) return;
+      const s = sig(host);
+      if (s !== st.sig){ st.sig = s; st.list = []; st.drag = null; return; }
+      if (st.list.length || st.drag) paint(host);
+    }).observe(host, { childList:true });
+    return st;
+  }
+  const hostOf = el => { const h = el && el.closest && el.closest(".boardgrid"); return h && h.id !== "board" ? h : null; };
+  const sqAt = (host, e) => { const el = document.elementFromPoint(e.clientX, e.clientY), s = el && el.closest && el.closest(".sq"); return s && host.contains(s) ? s.dataset.sq : null; };
+  let act = null;
+  document.addEventListener("pointerdown", e => {
+    const host = hostOf(e.target); if (!host) return;
+    if (e.button === 0){ const st = SH.get(host); if (st && st.list.length){ st.list = []; paint(host); } return; }
+    if (e.button !== 2) return;
+    const sq = e.target.closest(".sq"); if (!sq) return;
+    e.preventDefault(); e.stopPropagation();
+    const st = state(host); st.sig = sig(host);
+    st.drag = { from:sq.dataset.sq, to:sq.dataset.sq, c:shapeColor(e) };
+    act = host; paint(host);
+  }, true);
+  document.addEventListener("pointermove", e => {
+    if (!act) return;
+    const st = SH.get(act), to = sqAt(act, e);
+    if (to && st.drag && to !== st.drag.to){ st.drag.to = to; paint(act); }
+  }, true);
+  document.addEventListener("pointerup", e => {
+    if (!act) return;
+    const host = act, st = SH.get(host); act = null;
+    e.stopPropagation();
+    if (!st.drag) return;
+    const d = st.drag, to = sqAt(host, e) || d.to, c = shapeColor(e);
+    st.drag = null;
+    const i = st.list.findIndex(s => s.from === d.from && s.to === to);
+    if (i >= 0){ if (st.list[i].c === c) st.list.splice(i, 1); else st.list[i].c = c; }
+    else st.list.push({ from:d.from, to, c });
+    paint(host);
+  }, true);
+  document.addEventListener("contextmenu", e => { if (hostOf(e.target)) e.preventDefault(); }, true);
+})();
