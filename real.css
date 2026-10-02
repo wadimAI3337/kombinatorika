@@ -129,3 +129,88 @@
 .rl-job{margin-top:18px}
 .rl-jobh{display:flex; justify-content:space-between; gap:10px; margin-bottom:9px; font-size:14px}
 .rl-jobh span{color:var(--ink-3); font-size:12.5px}
+
+/* библиотека: следующая позиция, подборки, темы, список */
+.rl-head{margin-bottom:10px}
+.rl-head .ghost{margin-left:6px}
+.rl-how{margin:0 0 18px; font-size:13.5px; color:var(--ink-2)}
+.rl-how summary{cursor:pointer; color:var(--ink-3); font-size:13px}
+.rl-how p{margin:8px 0 0; max-width:70ch}
+.rl-top{display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:12px; margin-bottom:12px}
+@media (max-width:760px){ .rl-top{grid-template-columns:1fr} }
+.rl-next{display:grid; grid-template-columns:200px 1fr; gap:18px; align-items:start}
+@media (max-width:560px){ .rl-next{grid-template-columns:1fr} .rl-next .th{max-width:240px} }
+.rl-next .th{border-radius:8px; overflow:hidden; line-height:0; border:1px solid var(--line-2)}
+.rl-next .lab, .rl-sb .lab{font:700 11px/1 "Manrope",sans-serif; letter-spacing:.09em; text-transform:uppercase; color:var(--accent)}
+.rl-next .rl-big{margin-top:8px}
+.rl-next .rl-big i{font-style:normal; color:var(--ink-3); font-size:15px}
+.rl-next .tg{margin-top:9px}
+.rl-why{font-size:12.5px; color:var(--ink-3); margin:9px 0 0}
+.rl-side{display:flex; flex-direction:column; gap:12px}
+.rl-sb{display:flex; flex-direction:column; gap:3px; text-align:left; flex:1}
+.rl-sb b{font-family:"Literata",serif; font-size:26px; line-height:1.15; margin-top:4px}
+.rl-sb i{font-style:normal; font-size:12.5px; color:var(--ink-3)}
+.rl-sb:not(:disabled):hover{border-color:var(--accent)}
+.rl-sb:not(:disabled) i{color:var(--accent); font-weight:600}
+.rl-sb[aria-pressed="true"]{border-color:var(--accent)}
+.rl-sb:disabled{cursor:default; opacity:.75}
+.rl-opp{margin-bottom:12px}
+.rl-h3{font:700 11px/1 "Manrope",sans-serif; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); margin:24px 0 10px}
+.rl-h3 span{letter-spacing:0; text-transform:none; font-weight:500; margin-left:6px}
+.rl-cols{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:8px}
+.rl-col{display:grid; grid-template-columns:34px 1fr; grid-template-rows:auto 5px; gap:6px 11px; align-items:center;
+  text-align:left; padding:10px 12px; border-radius:11px; background:var(--surface); border:1px solid var(--line)}
+.rl-col:hover{border-color:var(--ink-3)}
+.rl-col[aria-pressed="true"]{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
+.rl-col .ic{grid-row:1 / 3; width:34px; height:34px; border-radius:9px; background:var(--accent-soft); color:var(--accent);
+  display:grid; place-items:center; font:700 16px/1 "Literata",serif}
+.rl-col .nm{display:flex; flex-direction:column; min-width:0}
+.rl-col .nm b{font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rl-col .nm i{font-style:normal; font-size:11.5px; color:var(--ink-3)}
+.rl-col .pb{height:5px; border-radius:99px; background:var(--surface-2); overflow:hidden}
+.rl-col .pb i{display:block; height:100%; background:var(--good); border-radius:99px}
+.rl-tagsel{display:flex; flex-wrap:wrap; gap:6px}
+.rl-tagsel button{padding:5px 11px; border-radius:99px; border:1px solid var(--line); background:var(--surface); font-size:12.5px}
+.rl-tagsel button i{font-style:normal; color:var(--ink-3); margin-left:3px}
+.rl-tagsel button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+.rl-tagsel button[aria-pressed="true"] i{color:inherit; opacity:.7}
+.rl-tools{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px}
+.rl-tools .opinput{flex:1; min-width:180px; max-width:320px; margin:0}
+.rl-lw{display:grid; grid-template-columns:minmax(0,1fr) 230px; gap:14px; align-items:start}
+@media (max-width:860px){ .rl-lw{grid-template-columns:1fr} .rl-prev{display:none} }
+.rl-list{background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.rl-li{display:grid; grid-template-columns:34px minmax(0,1fr) 62px 132px; gap:10px; align-items:center; width:100%;
+  text-align:left; padding:9px 12px; border-bottom:1px solid var(--line-2)}
+.rl-li:last-child{border-bottom:0}
+.rl-li:hover{background:var(--surface-2)}
+.rl-li .n{color:var(--ink-3); font:12px/1 "JetBrains Mono",monospace}
+.rl-li .tt{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 6px; min-width:0}
+.rl-li .tt b{font-size:14px}
+.rl-li .tt i{font-style:normal; color:var(--ink-3); font-size:12.5px}
+.rl-li .tt em{font-style:normal; color:var(--ink-3); font-size:12px; flex-basis:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rl-li .ev{font:700 12.5px/1 "JetBrains Mono",monospace; color:var(--good); text-align:right}
+.rl-li .pill{justify-self:end}
+@media (max-width:560px){ .rl-li{grid-template-columns:26px minmax(0,1fr) 54px} .rl-li .pill{display:none} }
+.rl-prev{position:sticky; top:70px; display:flex; flex-direction:column; gap:6px; font-size:13px}
+.rl-prev .th{border-radius:8px; overflow:hidden; line-height:0; border:1px solid var(--line-2)}
+.rl-prev span{color:var(--ink-3); font-size:12px}
+.rl-pager{display:flex; gap:12px; align-items:center; justify-content:center; margin-top:14px}
+.rl-pager button{padding:7px 13px; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:13px}
+.rl-pager button:disabled{opacity:.4; cursor:default}
+
+/* Elo соперника */
+.rl-elo{display:flex; align-items:center; gap:14px; margin-top:12px}
+.rl-elov{display:flex; flex-direction:column; min-width:118px}
+.rl-elov b{font-family:"Literata",serif; font-size:26px; line-height:1.1}
+.rl-elov span{font-size:12px; color:var(--accent); font-weight:600}
+.rl-elo input{flex:1; accent-color:var(--accent)}
+.rl-presets{display:flex; flex-wrap:wrap; gap:5px; margin-top:10px}
+.rl-presets button{padding:4px 9px; border-radius:8px; border:1px solid var(--line); background:var(--surface); font-size:12px; display:flex; gap:5px; align-items:baseline}
+.rl-presets button i{font-style:normal; color:var(--ink-3); font-size:11px}
+.rl-presets button[aria-pressed="true"]{border-color:var(--accent); color:var(--accent)}
+.rl-ranks{margin-top:10px; font-size:12.5px}
+.rl-ranks summary{cursor:pointer; color:var(--ink-3)}
+.rl-ranks table{border-collapse:collapse; margin-top:6px}
+.rl-ranks td{padding:2px 14px 2px 0; border-bottom:1px solid var(--line-2)}
+.rl-ranks td:last-child{font-family:"JetBrains Mono",monospace; color:var(--ink-2)}
+.rl-opp h4, .rl-imp h4{margin:0 0 11px; font:700 11px/1 "Manrope",sans-serif; letter-spacing:.09em; text-transform:uppercase; color:var(--accent)}

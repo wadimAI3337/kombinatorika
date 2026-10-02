@@ -64,7 +64,7 @@ const moveLab = (fen) => { const p = fen.split(" "); return p[5] + (p[1] === "w"
 function norm(o) {
   o = o && typeof o === "object" ? o : {};
   o.cfg = Object.assign({ opp: "stub", adapt: true, clock: "0" }, o.cfg || {});
-  o.cfg.lvl = Object.assign({ stub: 3, nodes: 3 }, o.cfg.lvl || {});
+  o.cfg.elo = Object.assign({ stub: 1500, nodes: 1500 }, o.cfg.elo || {});
   o.res = Array.isArray(o.res) ? o.res : [];
   o.puz = o.puz && typeof o.puz === "object" ? o.puz : {};
   o.lib = o.lib && typeof o.lib === "object" ? o.lib : {};
@@ -215,12 +215,32 @@ const E = {
 const cpOf = p => !p ? 0 : p.kind === "mate" ? (p.val > 0 ? MATE - p.val : -MATE - p.val) : p.val;
 
 /* ---------- соперник ---------- */
-const LVL = 8;
-/* уровни 1…8: допуск (сантипешки), глубина, «температура» выбора */
-const STUB = { tol: [0, 80, 70, 60, 50, 42, 35, 26, 15], depth: [0, 4, 5, 6, 8, 9, 11, 13, 15],
-               temp: [0, 40, 34, 28, 23, 18, 14, 10, 5] };
-const NODES = [0, 1000, 4000, 12000, 35000, 90000, 220000, 550000, 1400000];
+/* Сила соперника — число Elo. Шкала примерная: по ней сайт подбирает
+   допуск (насколько хуже лучшего хода можно сыграть), глубину расчёта и
+   разброс выбора; для «ограничения глубины» — лимит позиций на ход.
+   Между опорными точками — плавная интерполяция. */
+const ELO_MIN = 800, ELO_MAX = 2800, ELO_STEP = 50;
+const ELO_PTS = [800, 1200, 1600, 2000, 2400, 2800];
+const ELO_TOL = [130, 95, 62, 38, 20, 8];
+const ELO_DEPTH = [3, 5, 7, 10, 13, 16];
+const ELO_TEMP = [50, 38, 26, 16, 9, 4];
+const ELO_NODES = [500, 2000, 8000, 40000, 200000, 1500000];
+function eloAt(tab, elo, log) {
+  const e = clamp(elo, ELO_MIN, ELO_MAX);
+  for (let i = 1; i < ELO_PTS.length; i++) {
+    if (e > ELO_PTS[i]) continue;
+    const t = (e - ELO_PTS[i - 1]) / (ELO_PTS[i] - ELO_PTS[i - 1]);
+    return log ? Math.exp(Math.log(tab[i - 1]) + t * (Math.log(tab[i]) - Math.log(tab[i - 1])))
+               : tab[i - 1] + t * (tab[i] - tab[i - 1]);
+  }
+  return tab[tab.length - 1];
+}
+/* разряды — примерное соответствие рейтингу (очные турниры, ФШР/ФИДЕ) */
+const RANKS = [[0, "без разряда"], [1300, "3 разряд"], [1450, "2 разряд"], [1650, "1 разряд"],
+  [2000, "КМС"], [2200, "мастер спорта"], [2400, "международный мастер"], [2500, "гроссмейстер"]];
+const rankOf = elo => { let r = RANKS[0][1]; RANKS.forEach(([e, t]) => { if (elo >= e) r = t; }); return r; };
 const OPP_NAME = { stub: "Упрямый защитник", nodes: "Ограничение глубины" };
+const eloOf = mode => clamp(S.cfg.elo[mode] || 1500, ELO_MIN, ELO_MAX);
 
 function tradePenalty(fen, pv) {
   const pos = parseFen(fen), m = pv[0], to = m.slice(2, 4), cap = pos[to];
@@ -232,19 +252,19 @@ async function engineMove(fen, rev) {
     const r = await E.go({ fen, movetime: 1500, depth: 22, multipv: 1, cap: 4000 });
     return { uci: r.best, cp: cpOf(r.pvs[0]), cancelled: r.cancelled };
   }
-  const mode = S.cfg.opp, lv = clamp(S.cfg.lvl[mode] || 3, 1, LVL);
+  const mode = S.cfg.opp, elo = eloOf(mode);
   if (mode === "nodes") {
-    const r = await E.go({ fen, nodes: NODES[lv], multipv: 1 });
+    const r = await E.go({ fen, nodes: Math.round(eloAt(ELO_NODES, elo, true)), multipv: 1 });
     return { uci: r.best, cp: cpOf(r.pvs[0]), cancelled: r.cancelled };
   }
-  const r = await E.go({ fen, depth: STUB.depth[lv], multipv: 5 });
+  const r = await E.go({ fen, depth: Math.round(eloAt(ELO_DEPTH, elo)), multipv: 5 });
   if (r.cancelled) return { cancelled: true };
   const c = r.pvs.filter(p => p && p.pv && p.pv[0]).map(p => ({ uci: p.pv[0], cp: cpOf(p), pv: p.pv }));
   if (!c.length) return { uci: r.best, cp: 0 };
   c.sort((a, b) => b.cp - a.cp);
   const best = c[0].cp;
   if (best >= MATE - 300) return c[0];
-  const losing = best < -50, tol = STUB.tol[lv], tmp = STUB.temp[lv];
+  const losing = best < -50, tol = eloAt(ELO_TOL, elo), tmp = eloAt(ELO_TEMP, elo);
   const ok = c.filter(x => best - x.cp <= tol)
     .map(x => Object.assign({ adj: best - x.cp + (losing ? tradePenalty(fen, x.pv) : 0) }, x));
   const ws = ok.map(x => Math.exp(-x.adj / tmp));
@@ -604,6 +624,19 @@ async function collect(src, o, say) {
   return splitPgn(t);
 }
 
+/* партии стартового набора — чтобы та же партия из базы не задвоилась */
+let SEEDG = null;
+async function seedGids() {
+  if (SEEDG) return SEEDG;
+  await loadSeed();
+  const out = new Set();
+  for (const g of (SEED ? SEED.games : [])) {
+    const n = nodesOf(g);
+    out.add(await sha((g.start && g.start !== START ? g.start : "") + "|" + n.slice(1).map(x => x.uci).join(" ")));
+  }
+  return (SEEDG = out);
+}
+
 /* --- очередь --- */
 let JOB = null, jobRun = false;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -654,7 +687,7 @@ async function processOne(pgn, job) {
   const hero = o.me ? (lc(hd.White) === lc(o.me) ? "w" : "b") : (res === "1-0" ? "w" : "b");
   const gid = await sha((start === START ? "" : start) + "|" + ucis.join(" "));
   const pid = "i" + gid;
-  if (S.lib[pid]) { job.skip["уже в библиотеке"] = (job.skip["уже в библиотеке"] || 0) + 1; return; }
+  if (S.lib[pid] || (await seedGids()).has(gid)) { job.skip["уже в библиотеке"] = (job.skip["уже в библиотеке"] || 0) + 1; return; }
 
   let rec = await DB.get("games", gid), fromCache = !!rec;
   if (!rec) { const c = await cloudGet([gid]); rec = c[gid] || null; fromCache = !!rec; if (rec) await DB.put("games", rec); }
@@ -732,8 +765,7 @@ function paintJob() {
 }
 function importCard() {
   const o = S.imp;
-  return `<details class="rvcard rl-imp" id="rlImp"${IMP.length || (JOB && JOB.state !== "gone") ? "" : " open"}>
-    <summary>＋ Добавить свои партии</summary>
+  return `<div class="rvcard rl-imp" id="rlImp">
     <div class="rvseg rl-seg" id="rlKind">
       <button data-k="pgn" aria-pressed="${(o.kind || "pgn") === "pgn"}">PGN или ссылки</button>
       <button data-k="li" aria-pressed="${o.kind === "li"}">ник lichess</button>
@@ -752,8 +784,8 @@ function importCard() {
     <div class="rl-row"><button class="rvgo" id="rlImpGo">Найти позиции</button><span class="rvhint" id="rlImpSay" style="margin:0"></span></div>
     <p class="rvhint">Сначала сайт без движка выкидывает ничьи, блиц и короткие партии, потом Stockfish ищет момент, когда у
       победителя стало ${(o.th / 100).toFixed(1).replace(".0", "")} и выше и перевес устойчив. Партии, которые уже разбирали на lichess, идут без движка.
-      Всё считается в фоне: закроешь вкладку — продолжится при следующем заходе.</p>
-  </details>`;
+      Всё считается в фоне: закроешь вкладку — продолжится при следующем заходе. Одна и та же партия дважды не добавится.</p>
+  </div>`;
 }
 function bindImport() {
   const o = S.imp;
@@ -804,8 +836,8 @@ function bindImport() {
       if (!list.length) { say("Не нашёл ни одной партии."); $("rlImpGo").disabled = false; return; }
       say(`Партий: ${list.length}. Запускаю…`);
       await startJob(list, opts, col);
-      filt.g = "all";
-      renderLib();
+      scope.col = col; scope.tag = ""; scope.page = 0;
+      go("lib");
     } catch (e) {
       say("Не получилось: " + h(e.message || e));
       $("rlImpGo").disabled = false;
@@ -817,14 +849,14 @@ async function dropCol(col) {
   Object.keys(S.lib).forEach(k => { if (S.lib[k].col === col) delete S.lib[k]; });
   save();
   IMP = IMP.filter(g => g.group !== col);
-  filt.g = "all";
+  scope.col = "all";
   renderLib();
 }
 
 /* ============================================================
    разметка раздела
    ============================================================ */
-let root, view = "lib", cur = null, filt = { g: "all", s: "all" }, ORIG = null;
+let root, view = "lib", cur = null, ORIG = null;
 function mount() {
   root = document.createElement("section");
   root.id = "vReal";
@@ -891,6 +923,7 @@ function go(v, arg) {
   else if (v === "rep") renderRep();
   else if (v === "puz") { PZ = null; renderPuz(); }
   else if (v === "prof") renderProf();
+  else if (v === "add") renderAdd();
   else if (v === "champ") renderChamp(arg);
 }
 const crumb = (here, mid) =>
@@ -908,68 +941,154 @@ function bindCrumbs() {
 }
 function leavePlay() { /* партия остаётся в памяти — её можно продолжить из библиотеки */ }
 
-/* ---------- библиотека ---------- */
+/* ---------- библиотека ----------
+   Устроено как у lichess (темы задач, практика) и Chessable (Learn /
+   Review): позиции не нужно выбирать руками — главная кнопка даёт
+   следующую по очереди (сначала повтор того, что не дожал, потом
+   новые). Подборки — строками с прогрессом, темы — с количеством,
+   полный список — компактной таблицей с поиском и страницами. */
+let scope = { col: "all", tag: "", s: "all", q: "", sort: "order", page: 0, skip: [], opp: false };
+const LIB_PAGE = 50;
+const lastTry = pid => { const rs = S.res.filter(r => r.pid === pid); return rs.length ? rs[rs.length - 1].t : 0; };
+const ago = t => { const d = Math.floor((Date.now() - t) / DAY); return d <= 0 ? "сегодня" : d === 1 ? "вчера" : d + " " + plural(d, "день", "дня", "дней") + " назад"; };
+const inCol = g => scope.col === "all" || g.group === scope.col;
+const inScope = g => inCol(g) && (!scope.tag || (g.tags || []).indexOf(scope.tag) >= 0);
+function nextItem(pool) {
+  const st = g => statusOf(g.pid).k, now = Date.now();
+  const fresh = pool.filter(g => scope.skip.indexOf(g.pid) < 0);
+  const p = fresh.length ? fresh : pool;
+  const old = (a, b) => lastTry(a.pid) - lastTry(b.pid);
+  const due = p.filter(g => st(g) === "fail" && now - lastTry(g.pid) > DAY).sort(old);
+  if (due.length) return { g: due[0], why: "повтор: не дожал " + ago(lastTry(due[0].pid)) };
+  const nw = p.find(g => st(g) === "new");
+  if (nw) return { g: nw, why: "новая позиция" };
+  const won = p.filter(g => st(g) === "won").sort(old);
+  if (won.length) return { g: won[0], why: "реализовал, но с подарком соперника — сыграй чище" };
+  const fail = p.filter(g => st(g) === "fail").sort(old);
+  if (fail.length) return { g: fail[0], why: "не дожал " + ago(lastTry(fail[0].pid)) + " — ещё попытка" };
+  const any = p.slice().sort(old)[0];
+  return any ? { g: any, why: "всё реализовано чисто — повторим самую давнюю" } : null;
+}
+const posFen = g => { const n = nodesOf(g); return (n[g.k] || n[n.length - 1]).fen; };
 function renderLib() {
-  const list = items();
-  const st = list.map(g => statusOf(g.pid).k);
-  const won = st.filter(k => k === "clean" || k === "won").length, clean = st.filter(k => k === "clean").length;
-  const due = duePuz().length, lv = S.cfg.lvl[S.cfg.opp];
-  const groups = ["all"].concat([...new Set(list.map(g => g.group))]);
-  const vis = list.filter(g => (filt.g === "all" || g.group === filt.g) &&
-    (filt.s === "all" || (filt.s === "new" ? statusOf(g.pid).k === "new" :
-      filt.s === "fail" ? statusOf(g.pid).k === "fail" : ["clean", "won"].indexOf(statusOf(g.pid).k) >= 0)));
-  const live = G && !G.over;
+  const list = items(), stOf = g => statusOf(g.pid).k;
+  const wonN = list.filter(g => ["clean", "won"].indexOf(stOf(g)) >= 0).length, cleanN = list.filter(g => stOf(g) === "clean").length;
+  const due = duePuz().length, live = G && !G.over;
+  const cols = [...new Set(list.map(g => g.group))];
+  if (scope.col !== "all" && cols.indexOf(scope.col) < 0) scope.col = "all";
+  const pool = list.filter(inScope), nx = nextItem(pool);
+  const tagCnt = {};
+  list.filter(inCol).forEach(g => (g.tags || []).forEach(t => { tagCnt[t] = (tagCnt[t] || 0) + 1; }));
+  const tags = Object.entries(tagCnt).sort((a, b) => b[1] - a[1]);
+  const q = lc(scope.q).trim();
+  let vis = pool.filter(g => (scope.s === "all" || (scope.s === "won" ? ["clean", "won"].indexOf(stOf(g)) >= 0 : stOf(g) === scope.s)) &&
+    (!q || lc(g.title + " " + g.white + " " + g.black + " " + g.year).indexOf(q) >= 0));
+  if (scope.sort === "ev") vis = vis.slice().sort((a, b) => evAt(b, b.k) - evAt(a, a.k));
+  else if (scope.sort === "evlow") vis = vis.slice().sort((a, b) => evAt(a, a.k) - evAt(b, b.k));
+  else if (scope.sort === "recent") vis = vis.slice().sort((a, b) => lastTry(b.pid) - lastTry(a.pid));
+  const pages = Math.max(1, Math.ceil(vis.length / LIB_PAGE));
+  scope.page = clamp(scope.page, 0, pages - 1);
+  const page = vis.slice(scope.page * LIB_PAGE, (scope.page + 1) * LIB_PAGE);
+  const colName = scope.col === "all" ? "все позиции" : scope.col;
+  const e = eloOf(S.cfg.opp);
+  const colRow = (name, arr) => {
+    const w = arr.filter(g => ["clean", "won"].indexOf(stOf(g)) >= 0).length, on = name === scope.col;
+    return `<button class="rl-col" data-c="${h(name)}" aria-pressed="${on}">
+      <span class="ic">${name === "all" ? "∑" : h(name[0])}</span>
+      <span class="nm"><b>${name === "all" ? "Все позиции" : h(name)}</b><i>${arr.length} ${plural(arr.length, "позиция", "позиции", "позиций")} · реализовано ${w}</i></span>
+      <span class="pb"><i style="width:${arr.length ? 100 * w / arr.length : 0}%"></i></span></button>`;
+  };
   root.innerHTML = crumb() +
-    `<div class="hero"><h1>Реализация перевеса</h1>
-      <p>Метод Рамеша, тренера Гукеша и Прагнанандхи: партия чемпиона идёт до момента, когда у него уже выиграно —
-      дальше не смотришь, а доигрываешь сам против Stockfish. Потом сверяешься, как реализовал чемпион.
-      Стартовые позиции отобрал тренер из партий Крамника, Фишера и Карпова; ниже можно добавить свои базы и свои партии.</p></div>` +
+    `<div class="pagehead rl-head"><h1>Реализация перевеса</h1>
+      <span class="sub">${list.length} ${plural(list.length, "позиция", "позиции", "позиций")} · реализовано ${wonN} · чисто ${cleanN}</span>
+      <div class="spacer"></div>
+      <button class="ghost" id="rlAdd">＋ Добавить партии</button><button class="ghost" id="rlProfGo">Профиль</button></div>
+    <details class="rl-how"><summary>Как это работает</summary>
+      <p>Метод Рамеша, тренера Гукеша и Прагнанандхи. Партия чемпиона идёт до момента, когда у него уже выиграно (+2 и выше), —
+      дальше не смотришь, а доигрываешь сам против Stockfish. Потом сверяешься, как реализовал чемпион. Стартовые позиции отобрал
+      тренер из партий Крамника, Фишера и Карпова; свои базы и партии добавляются кнопкой «Добавить партии».</p></details>` +
     (live ? `<div class="rl-banner"><span>Партия не закончена: <b>${h(G.item.title)}</b></span>
       <button class="rvgo" id="rlResume">Продолжить партию</button></div>` : "") +
-    `<div class="rl-tiles">
-      <div class="rl-tile"><b>${list.length}</b><span>позиций</span></div>
-      <div class="rl-tile"><b>${won}</b><span>реализовано</span></div>
-      <div class="rl-tile"><b>${clean}</b><span>чисто, без подарков</span></div>
-      <button class="rl-tile act" id="rlPuzGo" ${due ? "" : "disabled"}><b>${due}</b><span>${due ? "задач из ошибок — решать →" : "задач из ошибок к повтору"}</span></button>
-      <button class="rl-tile act" id="rlProfGo"><b>${OPP_NAME[S.cfg.opp].split(" ")[0]} · ${lv}</b><span>соперник · профиль →</span></button>
+    `<div class="rvcard rl-job gone" id="rlJob"></div>
+    <div class="rl-top">
+      ${nx ? `<div class="rvcard rl-next">
+        <div class="th">${mini(posFen(nx.g), nx.g.hero === "b")}</div>
+        <div class="bd"><span class="lab">Следующая позиция · ${h(colName)}${scope.tag ? " · " + h(scope.tag) : ""}</span>
+          <div class="rl-big">${h(nx.g.title)}${nx.g.year ? ` <i>${h(nx.g.year)}</i>` : ""}</div>
+          <p class="rl-p">Играешь за <b>${h(heroName(nx.g))}</b> (${nx.g.hero === "w" ? "белые" : "чёрные"}) · оценка <b>${evTxt(evAt(nx.g, nx.g.k))}</b></p>
+          <div class="tg">${(nx.g.tags || []).map(t => `<span>${h(t)}</span>`).join("")}</div>
+          <p class="rl-why">${h(nx.why)}</p>
+          <div class="rvacts"><button class="go" id="rlNextPlay">Играть →</button><button id="rlNextOpen">Посмотреть позицию</button><button id="rlNextSkip">Другую</button></div>
+        </div></div>` : `<div class="rvcard rl-next"><p class="rl-p">В этой подборке нет позиций.</p></div>`}
+      <div class="rl-side">
+        <button class="rvcard rl-sb" id="rlPuzGo" ${due ? "" : "disabled"}><span class="lab">Задачи из ошибок</span><b>${due}</b><i>${due ? "решать →" : "к повтору нет"}</i></button>
+        <button class="rvcard rl-sb" id="rlOppGo" aria-pressed="${scope.opp}"><span class="lab">Соперник</span><b>~${e}</b><i>${rankOf(e)} · ${OPP_NAME[S.cfg.opp].toLowerCase()} · ${scope.opp ? "скрыть" : "изменить"}</i></button>
+      </div>
     </div>
-    <div class="rl-filters">
-      <div class="rvseg" id="rlG">${groups.map(g => `<button data-g="${h(g)}" aria-pressed="${filt.g === g}">${g === "all" ? "Все" : h(g)}</button>`).join("")}</div>
+    ${scope.opp ? oppCard() : ""}
+    <h3 class="rl-h3">Подборки</h3>
+    <div class="rl-cols">${colRow("all", list)}${cols.map(c => colRow(c, list.filter(g => g.group === c))).join("")}</div>
+    ${scope.col !== "all" && list.some(g => g.imported && g.group === scope.col) ? `<div class="rl-row"><button class="ghost" id="rlDrop">Убрать подборку «${h(scope.col)}»</button></div>` : ""}
+    ${tags.length ? `<h3 class="rl-h3">Темы</h3><div class="rl-tagsel">
+      <button data-t="" aria-pressed="${!scope.tag}">все темы</button>
+      ${tags.map(([t, n]) => `<button data-t="${h(t)}" aria-pressed="${scope.tag === t}">${h(t)} <i>${n}</i></button>`).join("")}</div>` : ""}
+    <h3 class="rl-h3">Список <span>${vis.length} ${plural(vis.length, "позиция", "позиции", "позиций")}</span></h3>
+    <div class="rl-tools">
+      <input class="opinput" id="rlQ" placeholder="Поиск: игрок, год…" value="${h(scope.q)}" spellcheck="false">
       <div class="rvseg" id="rlS">${[["all", "Все"], ["new", "Новые"], ["fail", "Не дожал"], ["won", "Реализовал"]]
-        .map(([k, t]) => `<button data-s="${k}" aria-pressed="${filt.s === k}">${t}</button>`).join("")}</div>
+        .map(([k, t]) => `<button data-s="${k}" aria-pressed="${scope.s === k}">${t}</button>`).join("")}</div>
+      <select class="opsel" id="rlSort">${[["order", "по порядку"], ["ev", "сначала больший перевес"], ["evlow", "сначала меньший перевес"], ["recent", "недавно игранные"]]
+        .map(([k, t]) => `<option value="${k}"${scope.sort === k ? " selected" : ""}>${t}</option>`).join("")}</select>
     </div>
-    ${filt.g !== "all" && list.some(g => g.imported && g.group === filt.g) ? `<div class="rl-row" style="margin:-6px 0 14px"><button class="ghost" id="rlDrop">Убрать подборку «${h(filt.g)}»</button></div>` : ""}
-    ${IMP.missing ? `<p class="rvhint">${IMP.missing} ${plural(IMP.missing, "позиция", "позиции", "позиций")} с другого устройства не подтянулись: их разбор не найден ни здесь, ни в общем кэше.</p>` : ""}
-    <div class="rl-grid" id="rlGrid"></div>` +
-    (vis.length ? "" : '<p class="rvhint">Под этот фильтр позиций нет.</p>') +
-    (vis.length > LIB_PAGE * libPage ? `<div class="rl-row"><button class="ghost" id="rlMore">Показать ещё (${vis.length - LIB_PAGE * libPage})</button></div>` : "") +
-    `<div class="rvcard rl-job gone" id="rlJob"></div>` + importCard();
-  const grid = $("rlGrid");
-  vis.slice(0, LIB_PAGE * libPage).forEach(g => {
-    const n = nodesOf(g), fen = (n[g.k] || n[n.length - 1]).fen, s = statusOf(g.pid);
-    const el = document.createElement("button");
-    el.className = "rl-card";
-    el.innerHTML = `<div class="th">${mini(fen, g.hero === "b")}</div><div class="bd">
-      <div class="tt">${h(g.title)}${g.year ? ` <i>${h(g.year)}</i>` : ""}</div>
-      <div class="mt">Играешь за ${h(heroName(g))} (${g.hero === "w" ? "белые" : "чёрные"}) · <b>${evTxt(evAt(g, g.k))}</b></div>
-      <div class="tg">${(g.tags || []).map(t => `<span>${h(t)}</span>`).join("")}</div>
-      <span class="pill rl-st ${s.k}">${s.t}</span></div>`;
-    el.onclick = () => go("pos", g.pid);
-    grid.appendChild(el);
+    <div class="rl-lw"><div class="rl-list" id="rlList">${page.length ? page.map((g, i) => {
+      const s = statusOf(g.pid);
+      return `<button class="rl-li" data-pid="${h(g.pid)}"><span class="n">${scope.page * LIB_PAGE + i + 1}</span>
+        <span class="tt"><b>${h(g.title)}</b>${g.year ? ` <i>${h(g.year)}</i>` : ""}<em>${h(heroName(g))} · ${g.hero === "w" ? "белые" : "чёрные"}${(g.tags || []).length ? " · " + h(g.tags.slice(0, 2).join(", ")) : ""}</em></span>
+        <span class="ev">${evTxt(evAt(g, g.k))}</span><span class="pill rl-st ${s.k}">${s.t}</span></button>`;
+    }).join("") : '<p class="rl-p" style="padding:14px">Ничего не нашлось.</p>'}</div>
+      <div class="rl-prev" id="rlPrev"></div></div>
+    ${pages > 1 ? `<div class="pager rl-pager"><button id="rlPgP" ${scope.page ? "" : "disabled"}>← Назад</button><span>${scope.page + 1} / ${pages}</span><button id="rlPgN" ${scope.page < pages - 1 ? "" : "disabled"}>Вперёд →</button></div>` : ""}`;
+
+  const prev = g => {
+    const el = $("rlPrev"); if (!el || !g) return;
+    el.innerHTML = `<div class="th">${mini(posFen(g), g.hero === "b")}</div><b>${h(g.title)}</b><span>ход ${g.hero === "w" ? "белых" : "чёрных"} · ${evTxt(evAt(g, g.k))}</span>`;
+  };
+  prev(page[0]);
+  root.querySelectorAll(".rl-li").forEach(b => {
+    b.onmouseenter = () => prev(itemById(b.dataset.pid));
+    b.onclick = () => go("pos", b.dataset.pid);
   });
-  root.querySelectorAll("#rlG button").forEach(b => b.onclick = () => { filt.g = b.dataset.g; libPage = 1; renderLib(); });
-  root.querySelectorAll("#rlS button").forEach(b => b.onclick = () => { filt.s = b.dataset.s; libPage = 1; renderLib(); });
+  if (nx) {
+    $("rlNextPlay").onclick = () => newGame(nx.g, false);
+    $("rlNextOpen").onclick = () => go("pos", nx.g.pid);
+    $("rlNextSkip").onclick = () => { scope.skip.push(nx.g.pid); if (scope.skip.length >= pool.length) scope.skip = []; renderLib(); };
+  }
+  root.querySelectorAll(".rl-col").forEach(b => b.onclick = () => { scope.col = b.dataset.c; scope.tag = ""; scope.page = 0; scope.skip = []; renderLib(); });
+  root.querySelectorAll(".rl-tagsel button").forEach(b => b.onclick = () => { scope.tag = b.dataset.t; scope.page = 0; scope.skip = []; renderLib(); });
+  root.querySelectorAll("#rlS button").forEach(b => b.onclick = () => { scope.s = b.dataset.s; scope.page = 0; renderLib(); });
+  $("rlSort").onchange = ev => { scope.sort = ev.target.value; scope.page = 0; renderLib(); };
+  let qt = null;
+  $("rlQ").oninput = ev => { clearTimeout(qt); qt = setTimeout(() => { scope.q = ev.target.value; scope.page = 0; renderLib(); const i = $("rlQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
+  if ($("rlPgP")) { $("rlPgP").onclick = () => { scope.page--; renderLib(); }; $("rlPgN").onclick = () => { scope.page++; renderLib(); }; }
   $("rlPuzGo").onclick = () => due && go("puz");
+  $("rlOppGo").onclick = () => { scope.opp = !scope.opp; renderLib(); };
+  if (scope.opp) bindOpp(renderLib);
   $("rlProfGo").onclick = () => go("prof");
+  $("rlAdd").onclick = () => go("add");
   if (live) $("rlResume").onclick = () => go("play");
-  if ($("rlMore")) $("rlMore").onclick = () => { libPage++; renderLib(); };
-  if ($("rlDrop")) $("rlDrop").onclick = () => dropCol(filt.g);
+  if ($("rlDrop")) $("rlDrop").onclick = () => dropCol(scope.col);
+  paintJob();
+  bindCrumbs();
+}
+function renderAdd() {
+  root.innerHTML = crumb("Добавить партии") +
+    `<div class="pagehead"><h1>Добавить партии</h1></div>
+    <div class="rvcard rl-job gone" id="rlJob"></div>` + importCard();
   bindImport();
   paintJob();
   bindCrumbs();
 }
-const LIB_PAGE = 48;
-let libPage = 1;
+
 
 /* ---------- позиция: просмотр до точки и настройки ---------- */
 let PV = { i: 0 };
@@ -981,7 +1100,6 @@ function renderPos(pid) {
   if (PV.pid !== pid) PV = { pid, i: g.k };
   const flip = g.hero === "b", n = nodes[PV.i];
   const rs = S.res.filter(r => r.pid === pid).slice(-8).reverse();
-  const opp = S.cfg.opp, lv = S.cfg.lvl[opp];
   const oppSide = g.hero === "w" ? g.black : g.white;
   root.innerHTML = crumb(h(g.title)) +
     `<div class="rvgrid"><div class="rvboardbox">
@@ -999,21 +1117,7 @@ function renderPos(pid) {
         <div class="tg rl-tags">${(g.tags || []).map(t => `<span>${h(t)}</span>`).join("")}</div>
         ${g.ka != null && g.ka !== g.k ? `<p class="rvhint">Алгоритм поставил бы точку на ${Math.floor(g.ka / 2) + 1}-м ходу, тренер — на ${Math.floor(g.k / 2) + 1}-м.</p>` : ""}
       </div>
-      <div class="rvcard"><h4>Соперник</h4>
-        <div class="rvseg rl-seg" id="rlOpp">
-          <button data-o="stub" aria-pressed="${opp === "stub"}">Упрямый защитник</button>
-          <button data-o="nodes" aria-pressed="${opp === "nodes"}">Ограничение глубины</button></div>
-        <p class="rvhint" style="margin-top:8px">${opp === "stub"
-          ? "Выбирает среди лучших ходов с небольшим допуском, не зевает, избегает разменов — как защищается человек."
-          : "Полноценный движок с маленьким лимитом расчёта: ошибается, потому что не видит далеко."}</p>
-        <div class="rl-row"><span class="rvhint" style="margin:0">Уровень</span>
-          <div class="rvseg rl-lv" id="rlLv">${Array.from({ length: LVL }, (_, i) => `<button data-l="${i + 1}" aria-pressed="${lv === i + 1}">${i + 1}</button>`).join("")}</div></div>
-        <label class="opcheck" style="margin-top:10px"><input type="checkbox" id="rlAd" ${S.cfg.adapt ? "checked" : ""}>
-          адаптивно: чистая победа — уровень выше, не дожал — ниже</label>
-        <div class="rl-row"><span class="rvhint" style="margin:0">Часы</span>
-          <div class="rvseg" id="rlClk">${[["0", "без часов"], ["600+5", "10+5"], ["900+10", "15+10"]]
-            .map(([k, t]) => `<button data-c="${k}" aria-pressed="${S.cfg.clock === k}">${t}</button>`).join("")}</div></div>
-      </div>
+      ${oppCard()}
       <div class="rvcard"><div class="rvacts" style="margin-top:0">
         <button class="go" id="rlPlay">Играть за ${h(heroName(g))} →</button>
         <button id="rlRev" title="Ты за проигрывающую сторону против сильного движка">Обратная сторона: защищаться за ${h(oppSide)}</button>
@@ -1026,10 +1130,7 @@ function renderPos(pid) {
   const step = i => { PV.i = clamp(i, 0, g.k); renderPos(pid); };
   $("rlF").onclick = () => step(0); $("rlP").onclick = () => step(PV.i - 1);
   $("rlN").onclick = () => step(PV.i + 1); $("rlL").onclick = () => step(g.k);
-  root.querySelectorAll("#rlOpp button").forEach(b => b.onclick = () => { S.cfg.opp = b.dataset.o; save(); renderPos(pid); });
-  root.querySelectorAll("#rlLv button").forEach(b => b.onclick = () => { S.cfg.lvl[S.cfg.opp] = +b.dataset.l; save(); renderPos(pid); });
-  root.querySelectorAll("#rlClk button").forEach(b => b.onclick = () => { S.cfg.clock = b.dataset.c; save(); renderPos(pid); });
-  $("rlAd").onchange = e => { S.cfg.adapt = e.target.checked; save(); };
+  bindOpp(() => renderPos(pid));
   $("rlPlay").onclick = () => newGame(g, false);
   $("rlRev").onclick = () => newGame(g, true);
   $("rlChamp").onclick = () => {
@@ -1038,12 +1139,47 @@ function renderPos(pid) {
   };
   bindCrumbs();
 }
+/* ---------- карточка соперника: режим, Elo, часы ---------- */
+const ELO_PRESETS = [[1350, "3 разряд"], [1550, "2 разряд"], [1800, "1 разряд"], [2100, "КМС"], [2300, "мастер"], [2450, "межд. мастер"], [2650, "гроссмейстер"]];
+function oppCard() {
+  const opp = S.cfg.opp, elo = eloOf(opp);
+  return `<div class="rvcard rl-opp"><h4>Соперник</h4>
+    <div class="rvseg rl-seg" id="rlOpp">
+      <button data-o="stub" aria-pressed="${opp === "stub"}">Упрямый защитник</button>
+      <button data-o="nodes" aria-pressed="${opp === "nodes"}">Ограничение глубины</button></div>
+    <p class="rvhint" style="margin-top:8px">${opp === "stub"
+      ? "Выбирает среди лучших ходов с допуском, который зависит от Elo, не зевает и избегает разменов — как защищается человек."
+      : "Полноценный движок, но с лимитом расчёта по Elo: ошибается, потому что не видит далеко."}</p>
+    <div class="rl-elo"><div class="rl-elov"><b id="rlEloN">${elo}</b><span id="rlEloR">${rankOf(elo)}</span></div>
+      <input type="range" id="rlElo" min="${ELO_MIN}" max="${ELO_MAX}" step="${ELO_STEP}" value="${elo}"></div>
+    <div class="rl-presets">${ELO_PRESETS.map(([e, t]) => `<button data-e="${e}" aria-pressed="${elo === e}">${t}<i>${e}</i></button>`).join("")}</div>
+    <details class="rl-ranks"><summary>Какой Elo какому разряду</summary>
+      <table>${RANKS.map(([e, t], i) => `<tr><td>${t}</td><td>${i ? e + (RANKS[i + 1] ? "–" + (RANKS[i + 1][0] - 1) : "+") : "до " + (RANKS[1][0] - 1)}</td></tr>`).join("")}</table>
+      <p class="rvhint">Примерно, по рейтингу ФИДЕ/ФШР в очных турнирах. Онлайн-рейтинг (lichess, chess.com) обычно на 100–300 выше.
+        Elo соперника здесь — тоже примерная шкала: подстраивай по результатам, а лучше включи адаптивный режим.</p></details>
+    <label class="opcheck" style="margin-top:10px"><input type="checkbox" id="rlAd" ${S.cfg.adapt ? "checked" : ""}>
+      адаптивно: чистая победа — +50 Elo, не дожал — −50</label>
+    <div class="rl-row"><span class="rvhint" style="margin:0">Часы</span>
+      <div class="rvseg" id="rlClk">${[["0", "без часов"], ["600+5", "10+5"], ["900+10", "15+10"]]
+        .map(([k, t]) => `<button data-c="${k}" aria-pressed="${S.cfg.clock === k}">${t}</button>`).join("")}</div></div>
+  </div>`;
+}
+function bindOpp(rerender) {
+  root.querySelectorAll("#rlOpp button").forEach(b => b.onclick = () => { S.cfg.opp = b.dataset.o; save(); rerender(); });
+  const sl = $("rlElo");
+  sl.oninput = () => { $("rlEloN").textContent = sl.value; $("rlEloR").textContent = rankOf(+sl.value); };
+  sl.onchange = () => { S.cfg.elo[S.cfg.opp] = +sl.value; save(); rerender(); };
+  root.querySelectorAll(".rl-presets button").forEach(b => b.onclick = () => { S.cfg.elo[S.cfg.opp] = +b.dataset.e; save(); rerender(); });
+  root.querySelectorAll("#rlClk button").forEach(b => b.onclick = () => { S.cfg.clock = b.dataset.c; save(); rerender(); });
+  $("rlAd").onchange = e => { S.cfg.adapt = e.target.checked; save(); };
+}
+const oppShort = (mode, elo) => (mode === "nodes" ? "глубина" : "защитник") + " ~" + elo;
 const RES_T = { win: "победа", draw: "ничья", loss: "поражение" };
 function histRow(r) {
   const d = new Date(r.t);
   const tx = r.rev ? (r.result === "loss" ? "не удержал" : "удержал") : RES_T[r.result];
   return `<div class="rl-hr"><span>${d.getDate()}.${String(d.getMonth() + 1).padStart(2, "0")}</span>
-    <b class="${r.result}">${tx}</b><span>${r.rev ? "защита" : OPP_NAME[r.opp].split(" ")[0].toLowerCase() + " " + r.lvl}</span>
+    <b class="${r.result}">${tx}</b><span>${r.rev ? "защита" : oppShort(r.opp, r.elo || 1500)}</span>
     <span>${r.mist.length} ${plural(r.mist.length, "ошибка", "ошибки", "ошибок")}${r.rev ? "" : r.fair ? "" : " · подарок"}</span></div>`;
 }
 
@@ -1059,7 +1195,7 @@ function newGame(g, rev) {
   G = {
     id: uid(), item: g, rev, user, start, fens: [start], ucis: [], sans: [], last: null, sel: null,
     over: null, keys: { [posKey(start)]: 1 }, hopeless: 0, thinking: false, flip: user === "b",
-    opp: S.cfg.opp, lvl: S.cfg.lvl[S.cfg.opp], promo: null, view: -1,
+    opp: S.cfg.opp, elo: eloOf(S.cfg.opp), promo: null, view: -1,
     clock: cl ? { t: { w: cl[0] * 1000, b: cl[0] * 1000 }, inc: cl[1] * 1000, started: false, ts: 0 } : null
   };
   cur = g.pid;
@@ -1081,7 +1217,7 @@ function renderPlay() {
   root.innerHTML = crumb(G.rev ? "Защита" : "Партия", `<button data-rl="pos">${h(g.title)}</button>`) +
     `<div class="rvgrid"><div class="rvboardbox">
       <div class="rvtools"><button class="ghost" id="rlFlip">⇅ Перевернуть</button><div class="sp"></div>
-        <span class="who">${G.rev ? "Защищаешься" : "Реализуешь"} · соперник: ${G.rev ? "Stockfish в полную силу" : OPP_NAME[G.opp].toLowerCase() + ", уровень " + G.lvl}</span></div>
+        <span class="who">${G.rev ? "Защищаешься" : "Реализуешь"} · соперник: ${G.rev ? "Stockfish в полную силу" : OPP_NAME[G.opp].toLowerCase() + ", ~" + G.elo + " Elo (" + rankOf(G.elo) + ")"}</span></div>
       <div class="rl-pl" id="rlTop"></div>
       <div class="rl-bwrap"><div class="boardgrid" id="rlBoard"></div><div class="rl-promo gone" id="rlPromo"></div></div>
       <div class="rl-pl" id="rlBot"></div>
@@ -1295,20 +1431,20 @@ function build(game, an) {
 }
 function record(game, rep) {
   const r = game.over.result;
-  let lvlChange = 0;
+  let eloChange = 0;
   if (!game.rev && S.cfg.adapt && game.over.why !== "stopped") {
     const clean = r === "win" && rep.fair && rep.mist.length <= 1;
-    const lv = S.cfg.lvl[game.opp];
-    if (clean && lv < LVL) lvlChange = 1;
-    else if (r !== "win" && lv > 1) lvlChange = -1;
-    S.cfg.lvl[game.opp] = lv + lvlChange;
+    const e = eloOf(game.opp);
+    if (clean && e < ELO_MAX) eloChange = 50;
+    else if (r !== "win" && e > ELO_MIN) eloChange = -50;
+    S.cfg.elo[game.opp] = e + eloChange;
   }
-  rep.lvlChange = lvlChange;
+  rep.eloChange = eloChange;
   S.res.push({
-    id: game.id, pid: game.item.pid, t: Date.now(), rev: game.rev, opp: game.opp, lvl: game.lvl,
+    id: game.id, pid: game.item.pid, t: Date.now(), rev: game.rev, opp: game.opp, elo: game.elo,
     clock: S.cfg.clock, result: r, why: game.over.why, plies: game.ucis.length, my: rep.myMoves,
     mist: rep.mist.map(m => ({ i: m.i, l: m.loss })), gifts: rep.gifts.length, fair: rep.fair, avg: rep.avg,
-    ucis: game.ucis.join(" "), lvlChange
+    ucis: game.ucis.join(" "), eloChange
   });
   /* три худшие ошибки — в задачи с интервальным повторением */
   rep.mist.slice().sort((a, b) => b.loss - a.loss).slice(0, 3).forEach(m => {
@@ -1355,7 +1491,7 @@ function renderRep() {
           <div><b>${(REP.avg / 100).toFixed(2)}</b><span>теряешь за ход</span></div></div>` : ""}
         ${!rev && r === "win" ? (REP.fair ? '<p class="rl-fair good">✓ Честная реализация — соперник не дарил.</p>'
           : `<p class="rl-fair bad">Победа с подарком: соперник ошибся — ${giftTx}. В «чистые» не идёт.</p>`) : ""}
-        ${REP.lvlChange ? `<p class="rl-p">Адаптивный уровень: ${REP.lvlChange > 0 ? "соперник стал сильнее" : "соперник стал слабее"} — теперь ${S.cfg.lvl[game.opp]}.</p>` : ""}
+        ${REP.eloChange ? `<p class="rl-p">Адаптивный режим: соперник ${REP.eloChange > 0 ? "сильнее" : "слабее"} на 50 — теперь ~${eloOf(game.opp)} Elo (${rankOf(eloOf(game.opp))}).</p>` : ""}
       </div>
       <div class="rvcard"><h4>График оценки</h4><div class="rl-graph" id="rlGraph"></div>
         <div class="rl-leg"><span class="me">ты</span>${rev ? "" : `<span class="ch">${h(heroName(g))}</span>`}<span class="er">ошибка</span></div></div>
@@ -1636,8 +1772,8 @@ function renderProf() {
         <p class="rl-p" style="margin-top:0">На каком твоём ходу после начала тренировки случаются ошибки.</p>
         <div class="rl-bins">${bins.map(([t, c]) => `<div><span>${t}</span><i style="width:${100 * c / bmax}%"></i><b>${c}</b></div>`).join("")}</div></div>
       <div class="rvcard"><h4>Соперник</h4>
-        <p class="rl-p" style="margin-top:0">Упрямый защитник — уровень <b>${S.cfg.lvl.stub}</b>, ограничение глубины — <b>${S.cfg.lvl.nodes}</b>.
-          ${S.cfg.adapt ? "Уровень меняется сам: чистая победа — выше, не дожал — ниже." : "Адаптивный уровень выключен."}</p>
+        <p class="rl-p" style="margin-top:0">Упрямый защитник — <b>~${eloOf("stub")} Elo</b> (${rankOf(eloOf("stub"))}), ограничение глубины — <b>~${eloOf("nodes")}</b> (${rankOf(eloOf("nodes"))}).
+          ${S.cfg.adapt ? "Elo меняется сам: чистая победа — +50, не дожал — −50." : "Адаптивный режим выключен."}</p>
         ${S.res.length ? `<div class="rl-hist">${S.res.slice(-10).reverse().map(r => { const g = itemById(r.pid); return `<div class="rl-hr"><span>${g ? h(g.title) : ""}</span>` + histRow(r).replace('<div class="rl-hr">', "").replace(/<\/div>$/, "") + "</div>"; }).join("")}</div>` : ""}</div>
     </div>
     <div class="rvacts"><button id="rlBack">К позициям</button></div>`;
