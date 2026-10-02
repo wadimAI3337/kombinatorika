@@ -5930,4 +5930,26 @@ window.KOMBI_APP = {
     paint(host);
   }, true);
   document.addEventListener("contextmenu", e => { if (hostOf(e.target)) e.preventDefault(); }, true);
+
+  /* маленькая подсказка под каждой доской (на телефоне скрыта стилями) */
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const HINT = '<span class="k">ПКМ</span> — стрелка, по одному полю — кружок' +
+    '<span class="c" style="--c:' + SHCOL.green + '"></span>обычная' +
+    '<span class="c" style="--c:' + SHCOL.red + '"></span>Shift' +
+    '<span class="c" style="--c:' + SHCOL.blue + '"></span>' + (isMac ? "⌥" : "Alt") +
+    '<span class="c" style="--c:' + SHCOL.yellow + '"></span>' + (isMac ? "⌘" : "Ctrl") +
+    '<span class="sep">·</span>левый клик стирает';
+  function addHints(){
+    document.querySelectorAll(".boardgrid:not([data-hint])").forEach(b => {
+      b.dataset.hint = "1";
+      if (b.closest(".mini, .rl-card, .rl-next, .rl-prev")) return;
+      const wrap = b.closest(".rdbwrap, .rvbwrap, .rl-bwrap, .bwrap") || b;
+      if (wrap.nextElementSibling && wrap.nextElementSibling.classList.contains("shint")) return;
+      wrap.insertAdjacentHTML("afterend", '<div class="shint">' + HINT + "</div>");
+    });
+  }
+  addHints();
+  let ht = null;
+  new MutationObserver(() => { if (!ht) ht = setTimeout(() => { ht = null; addHints(); }, 120); })
+    .observe(document.body, { childList:true, subtree:true });
 })();
