@@ -92,6 +92,9 @@ def play(self, tok, num, dots, prev_ply, bold):
     self.fail = nid is None
     # голое поле («32.Bc5(c7) Kg7») — не ход: цепочку не рвёт
     if nid is None and not num and re.fullmatch(r"[a-h][1-8]", tok): self.fail = fail0
+    if nid is None and num and not fail0:
+        r = skip_reply(self, cur0, tok, num, dots)
+        if r[0] is not None: self.fail = False; return r
     if nid is None or not num: return nid, pp
     want = P.tok_ply(num, dots, None)
     n = self.t.nodes[nid]
@@ -114,9 +117,33 @@ def play(self, tok, num, dots, prev_ply, bold):
             return nid, pp
         del self.t.nodes[n0:]; del self.t.roots[r0:]
         self.cur, self.main, self.scope, self.stack = st0[0], st0[1], st0[2], st0[3]
+    if not fail0:
+        r = skip_reply(self, cur0, tok, num, dots)
+        if r[0] is not None: self.fail = False; return r
     self.fail = True
     return None, want
 P.Linker.play = play
+
+def skip_reply(L, cur, tok, num, dots):
+    """«5.Rb4+ и 6.Rd4», «16...Rd1+ и 17...Re1+»: та же сторона ходит снова, ответ
+       соперника в книге пропущен (чаще всего уход от шаха, где угрозу «пропуском
+       хода» не построить). Номер ровно через ход после текущей позиции — ставим
+       первый ответ соперника, после которого ход легален, и ход за ним."""
+    if cur is None or cur < 0: return None, None
+    want = P.tok_ply(num, dots, None)
+    if L.t.ply(cur) != want - 1: return None, None
+    b = chess.Board(L.t.fen(cur))
+    for r in b.legal_moves:
+        b2 = b.copy(); b2.push(r)
+        mv = match_move(b2, tok)
+        if mv:
+            a = L.t.child(cur, r, b, False)
+            nid = L.t.child(a, mv, b2, False)
+            for x in (a, nid):
+                if x not in L.scope: L.scope.append(x)
+            L.cur = nid
+            return nid, L.t.ply(nid)
+    return None, None
 
 def renumber(L, tok, num, dots, bold):
     """Диаграмма, после которой текст шёл без номеров ходов, получила 1-й ход.
