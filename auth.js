@@ -228,7 +228,7 @@
   }
 
   /* «Реализация перевеса»: партии — объединением по id, задачи из ошибок —
-     та запись, что трогали позже, настройки — с этого устройства */
+     та запись, что трогали позже, библиотека — объединением, настройки — с этого устройства */
   function mergeReal(a, b) {
     if (!a && !b) return null;
     a = a || {}; b = b || {};
@@ -242,6 +242,8 @@
     });
     return {
       cfg: a.cfg || b.cfg || {},
+      imp: a.imp || b.imp || {},
+      lib: Object.assign({}, b.lib || {}, a.lib || {}),
       res: Object.keys(res).map(function (k) { return res[k]; }).sort(function (x, y) { return x.t - y.t; }),
       puz: puz
     };
@@ -785,7 +787,8 @@
     snapshot: readLocal,
     flush: function () { dirty = true; return flush(); },
     merge: mergeSnap,
-    user: function () { return user; }
+    user: function () { return user; },
+    client: function () { return sb; }
   };
 
   /* то, чем пользуется stats.js */

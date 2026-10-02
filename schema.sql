@@ -30,3 +30,30 @@ create policy "saves: менять своё"
   on public.saves for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- ============================================================
+--  «Реализация перевеса»: общий кэш разобранных партий.
+--  Одну и ту же партию (скажем, из базы Карпова) Stockfish
+--  считает один раз — дальше её разбор берут все из кэша.
+--  Можно выполнить отдельно, если таблица saves уже есть.
+-- ============================================================
+
+create table if not exists public.real_cache (
+  gid        text primary key,
+  data       jsonb       not null,
+  created_by uuid        default auth.uid(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.real_cache enable row level security;
+
+drop policy if exists "real_cache: читать всем"        on public.real_cache;
+drop policy if exists "real_cache: добавлять с входом" on public.real_cache;
+
+create policy "real_cache: читать всем"
+  on public.real_cache for select
+  using (true);
+
+create policy "real_cache: добавлять с входом"
+  on public.real_cache for insert
+  with check (auth.uid() is not null);

@@ -67,6 +67,8 @@ function norm(o) {
   o.cfg.lvl = Object.assign({ stub: 3, nodes: 3 }, o.cfg.lvl || {});
   o.res = Array.isArray(o.res) ? o.res : [];
   o.puz = o.puz && typeof o.puz === "object" ? o.puz : {};
+  o.lib = o.lib && typeof o.lib === "object" ? o.lib : {};
+  o.imp = Object.assign({ th: 200, min: 30, slow: true, n: 100 }, o.imp || {});
   return o;
 }
 let S = norm((() => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; } })());
@@ -95,7 +97,7 @@ function loadSeed() {
     document.body.appendChild(el);
   });
 }
-const items = () => SEED ? SEED.games : [];
+const items = () => (SEED ? SEED.games : []).concat(IMP);
 const itemById = pid => items().find(g => g.pid === pid);
 function nodesOf(g) {
   if (g._nodes) return g._nodes;
@@ -109,7 +111,7 @@ function nodesOf(g) {
   }
   return (g._nodes = out);
 }
-const heroName = g => g.group || (g.hero === "w" ? g.white : g.black);
+const heroName = g => g.heroName || g.group || (g.hero === "w" ? g.white : g.black);
 const sgn = side => side === "w" ? 1 : -1;
 const evAt = (g, i) => (g.ev[i] == null ? 0 : g.ev[i]) * sgn(g.hero);
 const champMoves = g => Math.ceil((g.sansArr.length - g.k) / 2);
@@ -322,6 +324,504 @@ function statusOf(pid) {
 const duePuz = () => Object.values(S.puz).filter(p => p.due <= Date.now()).sort((a, b) => a.due - b.due);
 
 /* ============================================================
+   СВОИ ПАРТИИ: загрузка, отсев, поиск точки перевеса
+
+   Источники: PGN (вставить или файлом), ссылка на партию или study
+   lichess, ник на lichess, ник на chess.com.
+   1) отсев без движка — по заголовкам и длине партии;
+   2) готовые оценки lichess (%eval), если партию там уже разбирали;
+   3) два прохода Stockfish: быстро по всем позициям, глубже — вокруг
+      места, где оценка перевалила порог;
+   4) точка перевеса — та же логика, что в tools/real/scan.py.
+   Очередь живёт в IndexedDB: закрыл вкладку — продолжится с того же
+   места. Разобранные партии кладутся в общий кэш Supabase (таблица
+   real_cache), чтобы одну и ту же партию не считать дважды.
+   ============================================================ */
+const PT = { CAP: 700, STABLE: 6, MIN_LEFT: 20, SWING: 80, TACTIC: 2 };
+const D1 = 10, D2 = 16;
+const PVAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+let IMP = [];                 /* загруженные позиции — как элементы стартового набора */
+
+/* --- точка перевеса (синхронно с scan.py: find_point) --- */
+function findPoint(ev, stmWhite0, heroWhite, gain, th) {
+  const n = ev.length, s = heroWhite ? 1 : -1;
+  const pov = ev.map(e => e == null ? null : e * s);
+  const heroMoves = i => ((i % 2 === 0) === stmWhite0) === heroWhite;
+  let first = null;
+  for (let i = 0; i < n; i++) {
+    if (!heroMoves(i) || pov[i] == null || pov[i] < th) continue;
+    const win = pov.slice(i, i + PT.STABLE + 1).filter(p => p != null);
+    if (win.length && Math.min(...win) >= th * 0.75) { first = i; break; }
+  }
+  if (first == null) return { k: null, v: "none", flags: [] };
+  if (pov[first] >= PT.CAP) return { k: first, v: "jump", flags: [] };
+  let k = null;
+  for (let i = first; i < Math.min(n, first + 12); i++) {
+    if (!heroMoves(i) || pov[i] == null || pov[i] < th * 0.75 || pov[i] >= PT.CAP) continue;
+    const g = gain ? gain(i) : null;
+    if (g != null && g >= PT.TACTIC) continue;
+    k = i; break;
+  }
+  if (k == null) return { k: first, v: "tactic", flags: [] };
+  if (n - 1 - k < PT.MIN_LEFT) return { k, v: "short", flags: [] };
+  const rest = pov.slice(k).filter(p => p != null);
+  return { k, v: "ok", flags: rest.length && Math.min(...rest) < PT.SWING ? ["swing"] : [] };
+}
+function matBal(fen, side) {
+  const pos = parseFen(fen); let m = 0;
+  for (const q in pos) { const pc = pos[q], v = PVAL[pc.toLowerCase()] || 0; m += (isW(pc) === (side === "w")) ? v : -v; }
+  return m;
+}
+function pvGain(fen, pv) {
+  if (!pv || !pv.length) return null;
+  const side = sideOf(fen), m0 = matBal(fen, side);
+  let f = fen;
+  for (const u of pv.slice(0, 3)) { const mv = makeMove(f, u.slice(0, 2), u.slice(2, 4), u[4]); if (!mv) break; f = mv.fen; }
+  return matBal(f, side) - m0;
+}
+/* --- теги (синхронно с scan.py: tags_of) --- */
+function tagsOf(fen, heroWhite) {
+  const pos = parseFen(fen), cnt = {};
+  for (const q in pos) { const pc = pos[q]; cnt[pc] = (cnt[pc] || 0) + 1; }
+  const c = (side, t) => cnt[side === "w" ? t.toUpperCase() : t] || 0;
+  const H = heroWhite ? "w" : "b", O = heroWhite ? "b" : "w";
+  const d = t => c(H, t) - c(O, t);
+  const minor = d("n") + d("b");
+  const np = side => 3 * c(side, "n") + 3 * c(side, "b") + 5 * c(side, "r") + 9 * c(side, "q");
+  const queens = c("w", "q") + c("b", "q");
+  const out = [];
+  out.push((queens === 0 && np("w") <= 13 && np("b") <= 13) || np("w") + np("b") <= 16 ? "эндшпиль" : "миттельшпиль");
+  const dp = d("p");
+  if (d("q") === 0 && d("r") === 0 && minor === 0)
+    out.push(dp === 0 ? "позиционный перевес" : dp === 1 ? "лишняя пешка" : dp > 1 ? "лишние пешки" : "перевес при меньшем материале");
+  else if (d("r") === 1 && minor === -1 && d("q") === 0) out.push("лишнее качество");
+  else if (minor >= 1 && d("r") === 0 && d("q") === 0) out.push("лишняя фигура");
+  else out.push("неравный материал");
+  const bsq = side => Object.keys(pos).filter(q => pos[q] === (side === "w" ? "B" : "b"));
+  const wb = bsq("w"), bb = bsq("b"), col = q => (FILES.indexOf(q[0]) + +q[1] - 1) % 2;
+  if (wb.length === 1 && bb.length === 1 && col(wb[0]) !== col(bb[0])) out.push("разноцветные слоны");
+  const hp = H === "w" ? "P" : "p", op = H === "w" ? "p" : "P";
+  for (const q in pos) {
+    if (pos[q] !== hp) continue;
+    const f = FILES.indexOf(q[0]), r = +q[1];
+    let blocked = false;
+    for (let ff = f - 1; ff <= f + 1 && !blocked; ff++) {
+      if (ff < 0 || ff > 7) continue;
+      for (let rr = 1; rr <= 8; rr++) {
+        if (H === "w" ? rr <= r : rr >= r) continue;
+        if (pos[FILES[ff] + rr] === op) { blocked = true; break; }
+      }
+    }
+    if (!blocked) { out.push("проходная"); break; }
+  }
+  return out;
+}
+
+/* --- PGN: заголовки, ходы и оценки lichess --- */
+function splitPgn(text) {
+  return String(text || "").replace(/\r/g, "").split(/\n(?=\s*\[Event\s)/).map(t => t.trim()).filter(t => /\d\.|\[/.test(t));
+}
+function headersOf(pgn) {
+  const hd = {}, re = /^\s*\[\s*([A-Za-z0-9_]+)\s+"([^"]*)"\s*\]\s*$/gm; let m;
+  while ((m = re.exec(pgn))) hd[m[1]] = m[2];
+  return hd;
+}
+function movesOf(pgn) {
+  let body = pgn.replace(/^\s*\[[^\]]*\]\s*$/gm, " ");
+  let prev;
+  do { prev = body; body = body.replace(/\([^()]*\)/g, " "); } while (body !== prev);
+  body = body.replace(/\$\d+/g, " ").replace(/;[^\n]*/g, " ");
+  const toks = body.match(/\{[^}]*\}|[^\s{}]+/g) || [];
+  const SAN = /^(?:O-O-O|O-O|0-0-0|0-0|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)[+#]?[!?]{0,2}$/;
+  const sans = [], evals = [];
+  for (const t of toks) {
+    if (t[0] === "{") {
+      const e = /\[%eval\s+(#?-?[\d.]+)/.exec(t);
+      if (e && sans.length) {
+        const v = e[1];
+        evals[sans.length] = v[0] === "#" ? (+v.slice(1) > 0 ? MATE - Math.abs(+v.slice(1)) : -MATE + Math.abs(+v.slice(1))) : Math.round(+v * 100);
+      }
+      continue;
+    }
+    if (/^\d+\.*$/.test(t) || /^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)) continue;
+    const c = t.replace(/^\d+\.+/, "");
+    if (SAN.test(c)) sans.push(c.replace(/[!?]+$/, ""));
+  }
+  return { sans, evals };
+}
+const tcBase = hd => { const tc = hd.TimeControl || ""; if (!tc || tc === "-" || tc === "?") return null; const b = parseInt(tc.split("+")[0].split("/").pop(), 10); return isNaN(b) ? null : b; };
+const lc = s => String(s || "").toLowerCase();
+/* отсев без движка; возвращает причину отказа или null */
+function prefilter(pgn, o) {
+  const hd = headersOf(pgn), res = hd.Result || "*";
+  if (o.me) {
+    if (lc(hd.White) !== lc(o.me) && lc(hd.Black) !== lc(o.me)) return "не твоя партия";
+  } else {
+    if (res !== "1-0" && res !== "0-1") return "ничья или без результата";
+    const winner = res === "1-0" ? hd.White : hd.Black;
+    if (o.hero && lc(winner).indexOf(lc(o.hero)) < 0) return "выиграл не тот игрок";
+  }
+  if (hd.Variant && !/standard/i.test(hd.Variant)) return "не классические шахматы";
+  const b = tcBase(hd);
+  if (o.slow && b != null && b < 600) return "блиц и пуля";
+  const plies = (pgn.replace(/\{[^}]*\}/g, " ").replace(/\([^()]*\)/g, " ").match(/(?:^|\s)(?:\d+\.+\s*)?(?:O-O|[KQRBNa-h])[^\s]*/g) || []).length;
+  if (plies < o.min * 2) return "короткая";
+  return null;
+}
+
+/* --- IndexedDB: разобранные партии и очередь --- */
+const DB = {
+  db: null, bad: false,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    if (this.bad || !window.indexedDB) return Promise.resolve(null);
+    return new Promise(res => {
+      let r;
+      try { r = indexedDB.open("kombi-real", 1); } catch (e) { this.bad = true; res(null); return; }
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        ["games", "job", "jobdata"].forEach(n => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: "id" }); });
+      };
+      r.onsuccess = () => { this.db = r.result; res(this.db); };
+      r.onerror = () => { this.bad = true; res(null); };
+    });
+  },
+  async req(store, mode, fn) {
+    const d = await this.open();
+    if (!d) return undefined;
+    return new Promise(res => {
+      try {
+        const q = fn(d.transaction(store, mode).objectStore(store));
+        q.onsuccess = () => res(q.result); q.onerror = () => res(undefined);
+      } catch (e) { res(undefined); }
+    });
+  },
+  get(store, id) { return this.req(store, "readonly", o => o.get(id)); },
+  put(store, v) { return this.req(store, "readwrite", o => o.put(v)); },
+  del(store, id) { return this.req(store, "readwrite", o => o.delete(id)); }
+};
+
+/* --- общий кэш в Supabase --- */
+let cloudOff = false;
+const sbc = () => { try { return window.kombiSync && window.kombiSync.client ? window.kombiSync.client() : null; } catch (e) { return null; } };
+const cloudErr = e => { if (e && /real_cache|does not exist|schema cache|PGRST205|42P01/i.test((e.message || "") + (e.code || ""))) cloudOff = true; };
+async function cloudGet(ids) {
+  const c = sbc(); if (!c || cloudOff || !ids.length) return {};
+  try {
+    const r = await c.from("real_cache").select("gid,data").in("gid", ids);
+    if (r.error) { cloudErr(r.error); return {}; }
+    const out = {}; (r.data || []).forEach(x => { out[x.gid] = x.data; }); return out;
+  } catch (e) { return {}; }
+}
+async function cloudPut(rec) {
+  const c = sbc(); if (!c || cloudOff) return;
+  const u = window.kombiSync.user && window.kombiSync.user(); if (!u) return;
+  try {
+    const r = await c.from("real_cache").upsert({ gid: rec.id, data: rec }, { onConflict: "gid", ignoreDuplicates: true });
+    if (r.error) cloudErr(r.error);
+  } catch (e) {}
+}
+async function sha(s) {
+  try {
+    const b = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s));
+    return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  } catch (e) { let h1 = 5381; for (let i = 0; i < s.length; i++) h1 = ((h1 << 5) + h1 + s.charCodeAt(i)) | 0; return "h" + (h1 >>> 0).toString(16); }
+}
+
+/* --- элементы библиотеки из разобранных партий --- */
+function itemOf(meta, rec) {
+  return {
+    pid: meta.pid, gid: meta.gid, imported: true, mine: !!meta.mine, group: meta.col,
+    heroName: meta.heroName, title: meta.title, year: meta.year, white: rec.h.White || "?", black: rec.h.Black || "?",
+    result: rec.h.Result || "*", hero: meta.hero, sans: rec.sans, sansArr: rec.sans.split(" "),
+    start: rec.start || START, k: meta.k, ev: rec.ev, tags: meta.tags || [], flags: meta.flags || [], missed: !!meta.missed
+  };
+}
+async function loadImported() {
+  const metas = Object.values(S.lib), out = [], miss = [];
+  for (const m of metas) {
+    const rec = await DB.get("games", m.gid);
+    if (rec) out.push(itemOf(m, rec)); else miss.push(m);
+  }
+  if (miss.length) {
+    for (let i = 0; i < miss.length; i += 100) {
+      const got = await cloudGet(miss.slice(i, i + 100).map(m => m.gid));
+      for (const m of miss.slice(i, i + 100)) {
+        const rec = got[m.gid];
+        if (rec) { await DB.put("games", rec); out.push(itemOf(m, rec)); }
+      }
+    }
+  }
+  IMP = out.concat(IMP.filter(g => !out.some(x => x.pid === g.pid)));
+  IMP.missing = metas.length - out.length;
+}
+
+/* --- источники --- */
+async function fetchText(url, accept) {
+  const r = await fetch(url, { headers: accept ? { Accept: accept } : {} });
+  if (r.status === 404) throw new Error("не найдено (404)");
+  if (r.status === 403) throw new Error("доступ закрыт (403) — например, автор study запретил скачивание");
+  if (r.status === 429) throw new Error("lichess просит подождать минуту (429)");
+  if (!r.ok) throw new Error("ответ " + r.status);
+  return r.text();
+}
+async function collect(src, o, say) {
+  const t = String(src || "").trim();
+  if (o.kind === "li") {
+    say("Скачиваю партии " + o.nick + " с lichess…");
+    const perf = o.slow ? "&perfType=rapid,classical,correspondence" : "";
+    return splitPgn(await fetchText(`https://lichess.org/api/games/user/${encodeURIComponent(o.nick)}?max=${o.n}${perf}&evals=true&clocks=false&opening=false`, "application/x-chess-pgn"));
+  }
+  if (o.kind === "cc") {
+    say("Читаю архивы chess.com…");
+    const a = JSON.parse(await fetchText(`https://api.chess.com/pub/player/${encodeURIComponent(lc(o.nick))}/games/archives`));
+    const months = (a.archives || []).slice().reverse(), out = [];
+    for (const m of months) {
+      if (out.length >= o.n) break;
+      say(`Читаю архивы chess.com… ${out.length} партий`);
+      const j = JSON.parse(await fetchText(m));
+      (j.games || []).slice().reverse().forEach(g => {
+        if (out.length >= o.n || !g.pgn || g.rules !== "chess") return;
+        if (o.slow && (g.time_class === "blitz" || g.time_class === "bullet")) return;
+        out.push(g.pgn);
+      });
+    }
+    return out;
+  }
+  const out = [];
+  const lines = t.split(/\s+/).filter(x => /^https?:\/\//.test(x));
+  if (lines.length && !/\[Event|1\.\s*\S/.test(t.replace(/https?:\/\/\S+/g, ""))) {
+    for (const u of lines) {
+      const st = /lichess\.org\/study\/([A-Za-z0-9]{8})(?:\/([A-Za-z0-9]{8}))?/.exec(u);
+      const gm = /lichess\.org\/([A-Za-z0-9]{8})(?:[A-Za-z0-9]{4})?(?:$|[\/?#])/.exec(u);
+      say("Скачиваю " + u);
+      if (st) out.push(...splitPgn(await fetchText(st[2] ? `https://lichess.org/api/study/${st[1]}/${st[2]}.pgn` : `https://lichess.org/api/study/${st[1]}.pgn`)));
+      else if (gm) out.push(await fetchText(`https://lichess.org/game/export/${gm[1]}?evals=true&clocks=false`));
+      else throw new Error("не понял ссылку: " + u + ". Поддерживаются партии и study с lichess; для chess.com — укажи ник.");
+    }
+    return out;
+  }
+  return splitPgn(t);
+}
+
+/* --- очередь --- */
+let JOB = null, jobRun = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function startJob(list, o, col) {
+  const pass = [], skip = {};
+  list.forEach(p => { const why = prefilter(p, o); if (why) skip[why] = (skip[why] || 0) + 1; else pass.push(p); });
+  JOB = { id: "cur", col, o, total: pass.length, all: list.length, i: 0, found: 0, cached: 0, skip, pre: Object.assign({}, skip), state: "run", t: Date.now() };
+  await DB.put("jobdata", { id: "cur", list: pass });
+  await DB.put("job", JOB);
+  runJob();
+}
+async function resumeJob() {
+  const j = await DB.get("job", "cur");
+  if (j && j.state === "run" && j.i < j.total) { JOB = j; runJob(); }
+  else if (j && j.state !== "done") JOB = j;
+}
+async function runJob() {
+  if (jobRun || !JOB) return;
+  jobRun = true;
+  const data = await DB.get("jobdata", "cur");
+  const list = data ? data.list : [];
+  if (!list.length) JOB.total = 0;
+  await E.load();
+  while (JOB && JOB.state === "run" && JOB.i < JOB.total) {
+    while (G && !G.over) await sleep(1500);            /* пока ты играешь — не отбираем движок */
+    if (!JOB || JOB.state !== "run") break;
+    try { await processOne(list[JOB.i], JOB); } catch (e) { JOB.skip["ошибка разбора"] = (JOB.skip["ошибка разбора"] || 0) + 1; }
+    JOB.i++;
+    await DB.put("job", JOB);
+    paintJob();
+  }
+  if (JOB && JOB.i >= JOB.total) { JOB.state = "done"; await DB.put("job", JOB); await DB.del("jobdata", "cur"); }
+  jobRun = false;
+  paintJob();
+  if (view === "lib" && root && !root.classList.contains("gone")) renderLib();
+}
+async function processOne(pgn, job) {
+  const o = job.o, hd = headersOf(pgn), mv = movesOf(pgn);
+  let f = hd.FEN && hd.SetUp !== "0" ? hd.FEN : START;
+  const start = f, fens = [f], ucis = [], sans = [];
+  for (const s of mv.sans) {
+    const m = CH.sanToMove(f, s);
+    if (!m) break;
+    fens.push(m.fen); ucis.push(m.uci); sans.push(m.san); f = m.fen;
+  }
+  if (sans.length < o.min * 2) { job.skip["короткая"] = (job.skip["короткая"] || 0) + 1; return; }
+  const res = hd.Result || "*";
+  const hero = o.me ? (lc(hd.White) === lc(o.me) ? "w" : "b") : (res === "1-0" ? "w" : "b");
+  const gid = await sha((start === START ? "" : start) + "|" + ucis.join(" "));
+  const pid = "i" + gid;
+  if (S.lib[pid]) { job.skip["уже в библиотеке"] = (job.skip["уже в библиотеке"] || 0) + 1; return; }
+
+  let rec = await DB.get("games", gid), fromCache = !!rec;
+  if (!rec) { const c = await cloudGet([gid]); rec = c[gid] || null; fromCache = !!rec; if (rec) await DB.put("games", rec); }
+  if (!rec) {
+    rec = { id: gid, sans: sans.join(" "), h: { White: hd.White, Black: hd.Black, Result: res, Date: hd.Date || hd.UTCDate || "", Event: hd.Event || "" },
+            ev: [], pv: {}, d: [D1, D2] };
+    if (start !== START) rec.start = start;
+    const hasEv = mv.evals.filter(x => x != null).length >= sans.length - 1;
+    for (let i = 0; i < fens.length; i++) {
+      const fi = fens[i];
+      if (!anyLegal(fi)) { rec.ev[i] = inCheckNow(fi) ? (sideOf(fi) === "w" ? -MATE : MATE) : 0; continue; }
+      if (hasEv && i > 0 && mv.evals[i] != null) { rec.ev[i] = mv.evals[i]; continue; }
+      if (hasEv && i === 0) { rec.ev[i] = 20; continue; }
+      const r = await E.go({ fen: fi, depth: D1, multipv: 1 });
+      const cp = cpOf(r.pvs[0]); rec.ev[i] = sideOf(fi) === "w" ? cp : -cp;
+    }
+    if (hasEv) rec.lichess = 1;
+  }
+  /* второй проход: глубже вокруг места, где перевес перевалил порог */
+  const stm0 = sideOf(start) === "w";
+  const p0 = findPoint(rec.ev, stm0, hero === "w", null, o.th);
+  if (p0.k != null) {
+    const lo = Math.max(0, p0.k - 2), hi = Math.min(fens.length, p0.k + PT.STABLE + 10);
+    let touched = false;
+    for (let i = lo; i < hi; i++) {
+      if (rec.pv[i] || !anyLegal(fens[i])) continue;
+      const r = await E.go({ fen: fens[i], depth: D2, multipv: 1 });
+      const cp = cpOf(r.pvs[0]); rec.ev[i] = sideOf(fens[i]) === "w" ? cp : -cp;
+      rec.pv[i] = (r.pvs[0] && r.pvs[0].pv || []).slice(0, 6); touched = true;
+    }
+    if (touched || !fromCache) { await DB.put("games", rec); cloudPut(rec); }
+  } else if (!fromCache) { await DB.put("games", rec); cloudPut(rec); }
+  if (fromCache) job.cached++;
+
+  const pt = findPoint(rec.ev, stm0, hero === "w", i => pvGain(fens[i], rec.pv[i]), o.th);
+  if (pt.v !== "ok") {
+    const why = { none: "перевес не появился", jump: "сразу разгром", tactic: "решает комбинация", short: "мало ходов после точки" }[pt.v];
+    job.skip[why] = (job.skip[why] || 0) + 1;
+    return;
+  }
+  const won = (res === "1-0") === (hero === "w") && res !== "1/2-1/2" && res !== "*";
+  const W = hd.White || "?", B = hd.Black || "?";
+  const year = (/(\d{4})/.exec(hd.Date || hd.UTCDate || "") || [])[1] || "";
+  S.lib[pid] = {
+    pid, gid, k: pt.k, hero, col: job.col, mine: !!o.me, missed: !!o.me && !won,
+    heroName: hero === "w" ? W : B, title: W + " – " + B, year,
+    tags: tagsOf(fens[pt.k], hero === "w").concat(o.me && !won ? ["упущено"] : []), flags: pt.flags, added: Date.now()
+  };
+  save();
+  IMP.push(itemOf(S.lib[pid], rec));
+  job.found++;
+}
+function paintJob() {
+  const el = $("rlJob");
+  if (!el) return;
+  if (!JOB || JOB.state === "gone") { el.innerHTML = ""; el.classList.add("gone"); return; }
+  el.classList.remove("gone");
+  const pct = JOB.total ? Math.round(100 * JOB.i / JOB.total) : 100;
+  const sk = Object.entries(JOB.skip).filter(x => x[1]).map(([k, v]) => `${k} — ${v}`).join(", ");
+  const st = JOB.state === "run" ? (G && !G.over ? "пауза, пока идёт твоя партия" : "считаю") : JOB.state === "pause" ? "на паузе" : "готово";
+  el.innerHTML = `<div class="rl-jobh"><b>${h(JOB.col)}</b><span>${st}</span></div>
+    <div class="rvbar"><i style="width:${pct}%"></i></div>
+    <p class="rl-p">Обработано ${JOB.i} из ${JOB.total} · найдено позиций: <b>${JOB.found}</b>${JOB.cached ? ` · из кэша: ${JOB.cached}` : ""}
+      ${JOB.all > JOB.total ? ` · отсеяно без движка: ${JOB.all - JOB.total}` : ""}</p>
+    ${sk ? `<p class="rvhint">Не подошли: ${h(sk)}.</p>` : ""}
+    <div class="rvacts">${JOB.state === "run" ? '<button id="rlJobP">Пауза</button>' : JOB.state === "pause" ? '<button class="go" id="rlJobR">Продолжить</button>' : ""}
+      <button id="rlJobX">${JOB.state === "done" ? "Скрыть" : "Отменить"}</button></div>`;
+  const p = $("rlJobP"), r = $("rlJobR");
+  if (p) p.onclick = async () => { JOB.state = "pause"; await DB.put("job", JOB); paintJob(); };
+  if (r) r.onclick = async () => { JOB.state = "run"; await DB.put("job", JOB); runJob(); paintJob(); };
+  $("rlJobX").onclick = async () => {
+    if (JOB.state !== "done" && !confirm("Остановить обработку? Найденные позиции останутся.")) return;
+    JOB.state = "gone"; await DB.put("job", JOB); await DB.del("jobdata", "cur"); JOB = null; paintJob();
+  };
+}
+function importCard() {
+  const o = S.imp;
+  return `<details class="rvcard rl-imp" id="rlImp"${IMP.length || (JOB && JOB.state !== "gone") ? "" : " open"}>
+    <summary>＋ Добавить свои партии</summary>
+    <div class="rvseg rl-seg" id="rlKind">
+      <button data-k="pgn" aria-pressed="${(o.kind || "pgn") === "pgn"}">PGN или ссылки</button>
+      <button data-k="li" aria-pressed="${o.kind === "li"}">ник lichess</button>
+      <button data-k="cc" aria-pressed="${o.kind === "cc"}">ник chess.com</button></div>
+    <div id="rlSrcBox"></div>
+    <div class="rl-row">
+      <label class="opcheck"><input type="checkbox" id="rlMe" ${o.meOn ? "checked" : ""}> это мои партии — искать перевесы, которые я упустил</label></div>
+    <div class="rl-row rl-me ${o.meOn ? "" : "gone"}"><input class="opinput" id="rlMeNick" placeholder="твой ник в этих партиях" value="${h(o.me || "")}" spellcheck="false"></div>
+    <div class="rl-row rl-hero ${o.meOn ? "gone" : ""}"><input class="opinput" id="rlHero" placeholder="Чьи победы брать — например Karpov (пусто — любые)" value="${h(o.hero || "")}" spellcheck="false"></div>
+    <div class="rl-row"><span class="rvhint" style="margin:0">Порог</span>
+      <div class="rvseg" id="rlTh">${[[150, "+1.5"], [200, "+2"], [300, "+3"]].map(([v, t]) => `<button data-v="${v}" aria-pressed="${o.th === v}">${t}</button>`).join("")}</div>
+      <span class="rvhint" style="margin:0">от</span>
+      <select class="opsel" id="rlMin">${[20, 30, 40].map(v => `<option value="${v}"${o.min === v ? " selected" : ""}>${v} ходов</option>`).join("")}</select>
+      <label class="opcheck"><input type="checkbox" id="rlSlow" ${o.slow ? "checked" : ""}> без блица</label></div>
+    <div class="rl-row"><input class="opinput" id="rlCol" placeholder="Название подборки — например «Карпов» или «Мои партии»" spellcheck="false"></div>
+    <div class="rl-row"><button class="rvgo" id="rlImpGo">Найти позиции</button><span class="rvhint" id="rlImpSay" style="margin:0"></span></div>
+    <p class="rvhint">Сначала сайт без движка выкидывает ничьи, блиц и короткие партии, потом Stockfish ищет момент, когда у
+      победителя стало ${(o.th / 100).toFixed(1).replace(".0", "")} и выше и перевес устойчив. Партии, которые уже разбирали на lichess, идут без движка.
+      Всё считается в фоне: закроешь вкладку — продолжится при следующем заходе.</p>
+  </details>`;
+}
+function bindImport() {
+  const o = S.imp;
+  const box = () => {
+    const k = o.kind || "pgn";
+    $("rlSrcBox").innerHTML = k === "pgn"
+      ? `<textarea class="rl-ta" id="rlSrc" spellcheck="false" placeholder="Вставь PGN (можно сразу много партий) или ссылки на партии / study с lichess"></textarea>
+         <div class="rl-row"><button class="ghost" id="rlFile">Взять из .pgn-файла</button><input type="file" id="rlFileIn" accept=".pgn,text/plain" multiple hidden><span class="rvhint" id="rlFileSay" style="margin:0"></span></div>`
+      : `<div class="rl-row"><input class="opinput" id="rlNick" placeholder="ник на ${k === "li" ? "lichess" : "chess.com"}" value="${h(o["nick_" + k] || "")}" spellcheck="false">
+         <select class="opsel" id="rlN">${[50, 100, 300, 1000].map(v => `<option value="${v}"${o.n === v ? " selected" : ""}>последние ${v}</option>`).join("")}</select></div>`;
+    if (k === "pgn") {
+      $("rlFile").onclick = () => $("rlFileIn").click();
+      $("rlFileIn").onchange = async e => {
+        const fs = [...e.target.files]; let all = "";
+        for (const f of fs) all += "\n\n" + await f.text();
+        $("rlSrc").value = all.trim();
+        $("rlFileSay").textContent = fs.map(f => f.name).join(", ") + " · " + splitPgn(all).length + " партий";
+        if (!$("rlCol").value && fs[0]) $("rlCol").value = fs[0].name.replace(/\.pgn$/i, "");
+      };
+    }
+  };
+  box();
+  root.querySelectorAll("#rlKind button").forEach(b => b.onclick = () => {
+    o.kind = b.dataset.k; save();
+    root.querySelectorAll("#rlKind button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    if (o.kind !== "pgn") { o.meOn = true; $("rlMe").checked = true; syncMe(); }
+    box();
+  });
+  const syncMe = () => { root.querySelector(".rl-me").classList.toggle("gone", !$("rlMe").checked); root.querySelector(".rl-hero").classList.toggle("gone", $("rlMe").checked); };
+  $("rlMe").onchange = () => { o.meOn = $("rlMe").checked; save(); syncMe(); };
+  root.querySelectorAll("#rlTh button").forEach(b => b.onclick = () => { o.th = +b.dataset.v; save(); root.querySelectorAll("#rlTh button").forEach(x => x.setAttribute("aria-pressed", x === b)); });
+  $("rlMin").onchange = e => { o.min = +e.target.value; save(); };
+  $("rlSlow").onchange = e => { o.slow = e.target.checked; save(); };
+  $("rlImpGo").onclick = async () => {
+    const say = t => { $("rlImpSay").innerHTML = t; };
+    if (jobRun && JOB && JOB.state === "run") { say("Уже идёт обработка — дождись или отмени её."); return; }
+    const kind = o.kind || "pgn", me = $("rlMe").checked;
+    const nick = kind === "pgn" ? "" : ($("rlNick").value || "").trim();
+    if (kind !== "pgn") { if (!nick) { say("Нужен ник."); return; } o["nick_" + kind] = nick; o.n = +$("rlN").value; }
+    const meNick = me ? (($("rlMeNick").value || "").trim() || nick) : "";
+    if (me && !meNick) { say("Впиши свой ник — по нему сайт поймёт, за кого ты играл."); return; }
+    o.me = meNick; o.hero = me ? "" : ($("rlHero").value || "").trim(); save();
+    const col = ($("rlCol").value || "").trim() || (me ? "Мои партии" : o.hero || "Подборка");
+    const opts = { kind, nick, n: o.n, me: meNick, hero: o.hero, th: o.th, min: o.min, slow: o.slow };
+    $("rlImpGo").disabled = true;
+    try {
+      const list = await collect(kind === "pgn" ? $("rlSrc").value : "", opts, t => say('<span class="rvspin"></span> ' + h(t)));
+      if (!list.length) { say("Не нашёл ни одной партии."); $("rlImpGo").disabled = false; return; }
+      say(`Партий: ${list.length}. Запускаю…`);
+      await startJob(list, opts, col);
+      filt.g = "all";
+      renderLib();
+    } catch (e) {
+      say("Не получилось: " + h(e.message || e));
+      $("rlImpGo").disabled = false;
+    }
+  };
+}
+async function dropCol(col) {
+  if (!confirm(`Убрать подборку «${col}» из библиотеки? Твои сыгранные партии и задачи останутся.`)) return;
+  Object.keys(S.lib).forEach(k => { if (S.lib[k].col === col) delete S.lib[k]; });
+  save();
+  IMP = IMP.filter(g => g.group !== col);
+  filt.g = "all";
+  renderLib();
+}
+
+/* ============================================================
    разметка раздела
    ============================================================ */
 let root, view = "lib", cur = null, filt = { g: "all", s: "all" }, ORIG = null;
@@ -379,6 +879,7 @@ async function open(v, arg) {
     if (!ok) { root.innerHTML = '<div class="rl-load">Не получилось загрузить real-seed.js. Обнови страницу.</div>'; return; }
   }
   reload();
+  if (!open.loaded) { open.loaded = true; await loadImported(); }
   go(v, arg);
 }
 function go(v, arg) {
@@ -422,7 +923,7 @@ function renderLib() {
     `<div class="hero"><h1>Реализация перевеса</h1>
       <p>Метод Рамеша, тренера Гукеша и Прагнанандхи: партия чемпиона идёт до момента, когда у него уже выиграно —
       дальше не смотришь, а доигрываешь сам против Stockfish. Потом сверяешься, как реализовал чемпион.
-      Позиции отобраны тренером из партий Крамника, Фишера и Карпова.</p></div>` +
+      Стартовые позиции отобрал тренер из партий Крамника, Фишера и Карпова; ниже можно добавить свои базы и свои партии.</p></div>` +
     (live ? `<div class="rl-banner"><span>Партия не закончена: <b>${h(G.item.title)}</b></span>
       <button class="rvgo" id="rlResume">Продолжить партию</button></div>` : "") +
     `<div class="rl-tiles">
@@ -437,10 +938,14 @@ function renderLib() {
       <div class="rvseg" id="rlS">${[["all", "Все"], ["new", "Новые"], ["fail", "Не дожал"], ["won", "Реализовал"]]
         .map(([k, t]) => `<button data-s="${k}" aria-pressed="${filt.s === k}">${t}</button>`).join("")}</div>
     </div>
+    ${filt.g !== "all" && list.some(g => g.imported && g.group === filt.g) ? `<div class="rl-row" style="margin:-6px 0 14px"><button class="ghost" id="rlDrop">Убрать подборку «${h(filt.g)}»</button></div>` : ""}
+    ${IMP.missing ? `<p class="rvhint">${IMP.missing} ${plural(IMP.missing, "позиция", "позиции", "позиций")} с другого устройства не подтянулись: их разбор не найден ни здесь, ни в общем кэше.</p>` : ""}
     <div class="rl-grid" id="rlGrid"></div>` +
-    (vis.length ? "" : '<p class="rvhint">Под этот фильтр позиций нет.</p>');
+    (vis.length ? "" : '<p class="rvhint">Под этот фильтр позиций нет.</p>') +
+    (vis.length > LIB_PAGE * libPage ? `<div class="rl-row"><button class="ghost" id="rlMore">Показать ещё (${vis.length - LIB_PAGE * libPage})</button></div>` : "") +
+    `<div class="rvcard rl-job gone" id="rlJob"></div>` + importCard();
   const grid = $("rlGrid");
-  vis.forEach(g => {
+  vis.slice(0, LIB_PAGE * libPage).forEach(g => {
     const n = nodesOf(g), fen = (n[g.k] || n[n.length - 1]).fen, s = statusOf(g.pid);
     const el = document.createElement("button");
     el.className = "rl-card";
@@ -452,13 +957,19 @@ function renderLib() {
     el.onclick = () => go("pos", g.pid);
     grid.appendChild(el);
   });
-  root.querySelectorAll("#rlG button").forEach(b => b.onclick = () => { filt.g = b.dataset.g; renderLib(); });
-  root.querySelectorAll("#rlS button").forEach(b => b.onclick = () => { filt.s = b.dataset.s; renderLib(); });
+  root.querySelectorAll("#rlG button").forEach(b => b.onclick = () => { filt.g = b.dataset.g; libPage = 1; renderLib(); });
+  root.querySelectorAll("#rlS button").forEach(b => b.onclick = () => { filt.s = b.dataset.s; libPage = 1; renderLib(); });
   $("rlPuzGo").onclick = () => due && go("puz");
   $("rlProfGo").onclick = () => go("prof");
   if (live) $("rlResume").onclick = () => go("play");
+  if ($("rlMore")) $("rlMore").onclick = () => { libPage++; renderLib(); };
+  if ($("rlDrop")) $("rlDrop").onclick = () => dropCol(filt.g);
+  bindImport();
+  paintJob();
   bindCrumbs();
 }
+const LIB_PAGE = 48;
+let libPage = 1;
 
 /* ---------- позиция: просмотр до точки и настройки ---------- */
 let PV = { i: 0 };
@@ -506,7 +1017,7 @@ function renderPos(pid) {
       <div class="rvcard"><div class="rvacts" style="margin-top:0">
         <button class="go" id="rlPlay">Играть за ${h(heroName(g))} →</button>
         <button id="rlRev" title="Ты за проигрывающую сторону против сильного движка">Обратная сторона: защищаться за ${h(oppSide)}</button>
-        <button id="rlChamp">Как реализовал чемпион</button></div>
+        <button id="rlChamp">${g.mine ? "Как ты сыграл тогда" : "Как реализовал чемпион"}</button></div>
         <p class="rvhint">Полную партию лучше смотреть после своей попытки.</p></div>
       ${rs.length ? `<div class="rvcard"><h4>Попытки</h4><div class="rl-hist">${rs.map(histRow).join("")}</div></div>` : ""}
     </div></div>`;
@@ -1149,5 +1660,6 @@ function onKey(e) {
 }
 
 mount();
+setTimeout(() => { resumeJob().then(() => { if (JOB && JOB.state === "run") loadSeed().then(() => { if (!open.loaded) { open.loaded = true; loadImported(); } }); }); }, 3000);
 window.kombiReal = { open, state: () => S };
 })();
