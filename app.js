@@ -1534,20 +1534,22 @@ const wordDiags = n => (n % 10 === 1 && n % 100 !== 11) ? "диаграмма"
     if (view === "group") renderGroup();
   }, () => { yakState = "fail"; if (view === "books") renderBooks(); if (view === "group") renderGroup(); });
 })();
-/* блок «Эндшпиль»: Дворецкий (end.js) и Шерешевский (shere.js) — два файла, один блок */
+/* блок «Эндшпиль»: Дворецкий (end.js) и Шерешевский, книги 1 и 2 (shere.js, shere2.js) — три файла, один блок */
 (function endLoad(){
   endState = "loading";
-  let left = 2, bad = 0;
+  let left = 3, bad = 0;
   const done = () => {
     if (--left) return;
-    endState = bad === 2 ? "fail" : "ok";
+    endState = bad === 3 ? "fail" : "ok";
     if (window.END) readBuild(window.END, "endgame");
     if (window.SHERE) readBuild(window.SHERE, "endgame");
+    if (window.SHERE2) readBuild(window.SHERE2, "endgame");
     if (view === "books") renderBooks();
     if (view === "group") renderGroup();
   };
   loadScript("end.js", done, () => { bad++; done(); });
   loadScript("shere.js", done, () => { bad++; done(); });
+  loadScript("shere2.js", done, () => { bad++; done(); });
 })();
 /* Прогресс чтения (kombi-read, синхронизируется): по книге — прочитанные
    разборы done{№: время}, заметки notes{№: текст}, last — где остановился.
