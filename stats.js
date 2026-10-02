@@ -984,7 +984,7 @@
 
   /* ---------- встраивание в навигацию ---------- */
 
-  var SECTIONS = ["vBooks", "vSections", "vList", "vSolve", "vReview", "vOpen"];
+  var SECTIONS = ["vBooks", "vSections", "vList", "vSolve", "vReview", "vOpen", "vRead", "vReal", "vGroup"];
 
   function openStats() {
     SECTIONS.forEach(function (id) {

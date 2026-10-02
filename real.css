@@ -1,0 +1,119 @@
+/* «Реализация перевеса» (real.js). Цвета — токены из index.html. */
+.navbtn.on{color:var(--accent)}
+.rl-load{padding:60px 0; text-align:center; color:var(--ink-2)}
+.rl-banner{display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:space-between;
+  background:var(--accent-soft); border:1px solid var(--accent); border-radius:12px; padding:11px 14px; margin-bottom:18px; font-size:14px}
+
+.rl-tiles{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:18px}
+.rl-tile{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+  display:flex; flex-direction:column; gap:2px; text-align:left; box-shadow:var(--shadow)}
+.rl-tile b{font-family:"Literata",serif; font-size:22px; line-height:1.15}
+.rl-tile span{font-size:12px; color:var(--ink-3)}
+.rl-tile.act:not(:disabled):hover{border-color:var(--accent)}
+.rl-tile.act:not(:disabled) span{color:var(--accent); font-weight:600}
+.rl-tile:disabled{cursor:default}
+
+.rl-filters{display:flex; gap:10px 18px; flex-wrap:wrap; margin-bottom:16px}
+.rl-filters .rvseg{flex-wrap:wrap}
+.rl-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px}
+.rl-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px;
+  display:grid; grid-template-columns:104px 1fr; gap:13px; text-align:left; box-shadow:var(--shadow);
+  transition:border-color .15s, transform .15s}
+.rl-card:hover{border-color:var(--accent); transform:translateY(-2px)}
+.rl-card .th{border-radius:7px; overflow:hidden; line-height:0; border:1px solid var(--line-2); align-self:start}
+.rl-card .bd{display:flex; flex-direction:column; gap:5px; min-width:0; align-items:flex-start}
+.rl-card .tt{font-family:"Literata",serif; font-weight:700; font-size:16px; line-height:1.25}
+.rl-card .tt i{font-style:normal; font-weight:600; color:var(--ink-3); font-size:13px}
+.rl-card .mt{font-size:12.5px; color:var(--ink-2)}
+.tg{display:flex; flex-wrap:wrap; gap:4px}
+.tg span{font-size:11px; padding:1px 7px; border-radius:99px; background:var(--surface-2); color:var(--ink-2); border:1px solid var(--line-2)}
+.rl-st.clean, .rl-st.won{color:var(--good); background:var(--good-bg); border-color:var(--good-line)}
+.rl-st.fail{color:var(--bad); background:var(--bad-bg); border-color:var(--bad-line)}
+
+.rl-big{font-family:"Literata",serif; font-size:19px; font-weight:700; line-height:1.25}
+.rl-p{font-size:13.5px; color:var(--ink-2); margin:8px 0 0}
+.rl-p b{color:var(--ink)}
+.rl-tags{margin-top:10px}
+.rl-row{display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap}
+.rl-seg{flex-wrap:wrap}
+.rl-lv button{padding:5px 10px; min-width:32px}
+
+.rl-hist{display:flex; flex-direction:column; gap:5px; font-size:12.5px}
+.rl-hr{display:flex; gap:10px; align-items:center; flex-wrap:wrap; color:var(--ink-3)}
+.rl-hr b{color:var(--ink-2)}
+.rl-hr b.win{color:var(--good)} .rl-hr b.loss{color:var(--bad)}
+
+/* партия */
+.rl-pl{display:flex; align-items:center; gap:8px; padding:4px 2px; font-size:13.5px}
+.rl-pl .dot{width:11px; height:11px; border-radius:50%; border:1px solid var(--ink-3)}
+.rl-pl .dot.w{background:#fff} .rl-pl .dot.b{background:#151210}
+.rl-clk{margin-left:auto; font:700 15px/1 "JetBrains Mono",monospace; padding:5px 9px; border-radius:7px;
+  background:var(--surface-2); color:var(--ink-2); font-variant-numeric:tabular-nums}
+.rl-clk.on{background:var(--ink); color:var(--bg)}
+.rl-clk.low.on{background:var(--bad); color:#fff}
+.rl-bwrap{position:relative}
+.rl-bwrap .boardgrid{position:relative}
+#vReal .rvbwrap .boardgrid{position:relative}
+.rl-promo{position:absolute; inset:0; z-index:20; background:rgba(20,15,10,.45); display:flex;
+  align-items:center; justify-content:center; gap:8px; border-radius:6px}
+.rl-promo button{width:16%; aspect-ratio:1; background:var(--surface); border-radius:10px; border:1px solid var(--line); padding:6px}
+.rl-promo button svg{width:100%; height:100%}
+.rl-promo button.x{width:9%; font-size:18px}
+.rl-status{font-size:15px; font-weight:700; padding:9px 12px; border-radius:10px; background:var(--surface-2); margin-bottom:10px}
+.rl-status.go{background:var(--good-bg); color:var(--good)}
+.rl-status.bad{background:var(--bad-bg); color:var(--bad)}
+.rl-moves{display:flex; flex-wrap:wrap; gap:2px 3px; align-items:center; max-height:240px; overflow:auto;
+  font-family:"JetBrains Mono",monospace; font-size:12.5px; scrollbar-width:thin}
+.rl-moves2{margin-top:12px; max-height:150px}
+.rl-moves .no{color:var(--ink-3); font-size:11.5px; margin-left:4px}
+.rl-m{padding:2px 6px; border-radius:6px}
+.rl-m:hover{background:var(--surface-2)}
+.rl-m.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
+.rl-m.bad{color:var(--bad); font-weight:700}
+.rl-m.cur.bad{color:var(--accent-ink)}
+.rl-m.start{box-shadow:inset 0 0 0 1.5px var(--accent)}
+
+/* разбор */
+.rl-verd.good{border-color:var(--good-line); background:linear-gradient(var(--good-bg),var(--surface) 70%)}
+.rl-verd.bad{border-color:var(--bad-line); background:linear-gradient(var(--bad-bg),var(--surface) 70%)}
+.rl-cmp{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:12px}
+.rl-cmp div{display:flex; flex-direction:column; align-items:center; text-align:center}
+.rl-cmp b{font-family:"Literata",serif; font-size:22px; line-height:1.1}
+.rl-cmp span{font-size:11px; color:var(--ink-3)}
+.rl-fair{font-size:13px; margin:12px 0 0; padding:8px 10px; border-radius:9px}
+.rl-fair.good{background:var(--good-bg); color:var(--good)}
+.rl-fair.bad{background:var(--bad-bg); color:var(--bad)}
+.rl-graph svg{display:block; width:100%; height:120px; background:var(--surface-2); border-radius:9px; cursor:crosshair}
+.rl-graph .mid{stroke:var(--line); stroke-width:.6; stroke-dasharray:2 2; vector-effect:non-scaling-stroke}
+.rl-graph path{fill:none; vector-effect:non-scaling-stroke; stroke-linejoin:round}
+.rl-graph path.me{stroke:var(--accent); stroke-width:2.2}
+.rl-graph path.ch{stroke:var(--ink-3); stroke-width:1.6; stroke-dasharray:4 3}
+.rl-graph .er circle{fill:var(--bad); stroke:var(--surface); stroke-width:.6}
+.rl-leg{display:flex; gap:14px; font-size:12px; color:var(--ink-3); margin-top:8px}
+.rl-leg span::before{content:""; display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px}
+.rl-leg .me::before{background:var(--accent)}
+.rl-leg .ch::before{background:var(--ink-3)}
+.rl-leg .er::before{width:8px; height:8px; border-radius:50%; background:var(--bad)}
+.rl-pathw{max-height:260px; overflow:auto; margin-top:10px; scrollbar-width:thin}
+.rl-pr{display:grid; grid-template-columns:52px 1fr 1fr; gap:4px; font:12.5px/1.7 "JetBrains Mono",monospace;
+  padding:0 6px; border-radius:6px}
+.rl-pr.hd{font-family:"Manrope",sans-serif; font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3)}
+.rl-pr span:first-child{color:var(--ink-3); font-size:11.5px}
+.rl-pr.mine span:nth-child(2){font-weight:700}
+.rl-pr.eq{background:var(--good-bg)}
+.rl-pr .bad{color:var(--bad)}
+.rl-empty{max-width:560px}
+
+/* профиль */
+.rl-two{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; margin-bottom:16px}
+.rl-tab .hd td{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3)}
+.rl-tab td.n{width:auto; white-space:nowrap}
+.rl-bins{display:flex; flex-direction:column; gap:6px}
+.rl-bins div{display:grid; grid-template-columns:52px 1fr 26px; align-items:center; gap:8px; font-size:12.5px}
+.rl-bins i{display:block; height:10px; border-radius:99px; background:var(--bad); min-width:2px}
+.rl-bins b{font-variant-numeric:tabular-nums; text-align:right}
+
+@media (max-width:600px){
+  .rl-card{grid-template-columns:84px 1fr}
+  .rl-cmp b{font-size:18px}
+}

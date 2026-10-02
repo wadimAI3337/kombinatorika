@@ -24,9 +24,10 @@
   /* kombi-stats    — сколько решено и заработано звёзд по дням
      kombi-ext      — ники на lichess/chess.com и ежедневные снимки рейтинга
      kombi-read     — книги для чтения: прочитанные разборы, заметки, где остановился */
-  var KEYS = ["kombi", "kombi-op", "kombi-opf", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext", "kombi-notes", "kombi-read"];
+  var KEYS = ["kombi", "kombi-op", "kombi-opf", "kombi-theme", "kombi-autoan", "kombi-stats", "kombi-ext", "kombi-notes", "kombi-read", "kombi-real"];
   var JSON_KEYS = { "kombi": true, "kombi-op": true, "kombi-opf": true, "kombi-stats": true,
-                    "kombi-ext": true, "kombi-notes": true, "kombi-read": true };
+                    "kombi-ext": true, "kombi-notes": true, "kombi-read": true,
+                    "kombi-real": true };
   var SYNCED = {}; KEYS.forEach(function (k) { SYNCED[k] = true; });
 
   var SB_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
@@ -226,6 +227,26 @@
     return out;
   }
 
+  /* «Реализация перевеса»: партии — объединением по id, задачи из ошибок —
+     та запись, что трогали позже, настройки — с этого устройства */
+  function mergeReal(a, b) {
+    if (!a && !b) return null;
+    a = a || {}; b = b || {};
+    var res = {}, puz = {};
+    [].concat(b.res || [], a.res || []).forEach(function (r) { if (r && r.id) res[r.id] = r; });
+    [b.puz || {}, a.puz || {}].forEach(function (src) {
+      Object.keys(src).forEach(function (k) {
+        var x = src[k], y = puz[k];
+        if (!y || (x.last || x.made || 0) >= (y.last || y.made || 0)) puz[k] = x;
+      });
+    });
+    return {
+      cfg: a.cfg || b.cfg || {},
+      res: Object.keys(res).map(function (k) { return res[k]; }).sort(function (x, y) { return x.t - y.t; }),
+      puz: puz
+    };
+  }
+
   function mergeSnap(local, cloud) {
     var out = {};
     var prog = mergeProgress(local["kombi"], cloud["kombi"]);
@@ -251,6 +272,9 @@
 
     var read = mergeRead(local["kombi-read"], cloud["kombi-read"]);
     if (Object.keys(read).length) out["kombi-read"] = read;
+
+    var real = mergeReal(local["kombi-real"], cloud["kombi-real"]);
+    if (real) out["kombi-real"] = real;
 
     var ext = mergeExt(local["kombi-ext"], cloud["kombi-ext"]);
     if (Object.keys(ext.accounts).length || Object.keys(ext.days).length) out["kombi-ext"] = ext;
@@ -432,6 +456,11 @@
     s.onload = function () {
       var t = document.createElement("script");
       t.src = "stats.js" + (VER ? "?v=" + VER : "");
+      t.onload = t.onerror = function () {
+        var r = document.createElement("script");
+        r.src = "real.js" + (VER ? "?v=" + VER : "");
+        document.body.appendChild(r);
+      };
       document.body.appendChild(t);
     };
     document.body.appendChild(s);
