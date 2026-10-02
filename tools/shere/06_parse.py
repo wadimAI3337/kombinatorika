@@ -93,7 +93,7 @@ def load():
     return res, warn
 
 def main():
-    want = [int(x) for x in (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--no-main" else "0,1,2,3,4,5,6,7").split(",")]
+    want = [int(x) for x in (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--no-main" else "0,1,2,3,4,5,6,7,8").split(",")]
     items, warn = load()
     chs = [c for c in E.split_chapters(items) if c["n"] in want]
     res, allbad, tot = [], [], 0
