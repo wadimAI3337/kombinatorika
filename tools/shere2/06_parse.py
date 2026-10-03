@@ -10,6 +10,9 @@ yak/06_parse.py и dvor/06_parse.py. Здесь только разметка э
                                [[DIAG ? b]] — упражнение (ответ скрыт), ход чёрных;
                                [[DIAG w 45]] — номер хода, когда по тексту его не угадать
   [[CONT]]                     страница начинается с продолжения абзаца
+  [[REPEAT]]                   партия начинается с той же позиции, что и предыдущая
+                               (без своей доски в книге) — повторяется последняя доска;
+                               [[REPEAT Гулько]] — возврат к партии: её первая доска
   [[RESUME]]                   «Возвращаемся к партии»: ходы снова от позиции партии
                                (до первой диаграммы-отступления в разделе)
   **…**                        жирные ходы (главная линия)
@@ -22,7 +25,7 @@ E = importlib.util.module_from_spec(spec); sys.modules["E"] = E
 cwd = os.getcwd(); os.chdir(os.path.join(HERE, "../end")); sys.path.insert(0, os.path.join(HERE, "../end"))
 spec.loader.exec_module(E); os.chdir(cwd)
 FIX = json.load(open(os.path.join(HERE, "fix_fens.json"))) if os.path.exists(os.path.join(HERE, "fix_fens.json")) else {}
-TAG = re.compile(r"\[\[(CHAPTER|GAME|H|DIAG|CONT|RESUME)\s*([^\]]*)\]\]\s*(.*)$")
+TAG = re.compile(r"\[\[(CHAPTER|GAME|H|DIAG|CONT|RESUME|REPEAT)\s*([^\]]*)\]\]\s*(.*)$")
 MIN, MAX = 480, 580
 
 def load():
@@ -46,6 +49,13 @@ def load():
                     buf.append(l); first = False; continue
                 flush()
                 tag, arg, rest = m.groups()
+                if tag == "REPEAT":        # партия с того же места, что и предыдущая: её доска ещё раз
+                    # [[REPEAT Гулько]] — первая доска партии, в шапке которой есть это слово
+                    if (arg + rest).strip():
+                        i0 = max(i for i, x in enumerate(items) if x[0] == "sec" and (arg + rest).strip() in x[1])
+                        last = next(x for x in items[i0:] if x[0] == "diag")
+                    else: last = next(x for x in reversed(items) if x[0] == "diag")
+                    items.append(("diag", dict(last[1]), p, None)); first = False; continue
                 if tag == "RESUME":
                     items.append(("resume", None, p, None)); first = False; continue
                 if tag == "CONT":

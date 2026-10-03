@@ -55,7 +55,7 @@ for p in sorted(CC.LOWRES):
         if not CC.MIN <= bb[2] <= CC.MAX or (p, k) in gt2: continue
         c, _ = CC.C.cells(f"work/boards/p{p:03d}_{k}.png")
         res.append({"p": p, "k": k, "fen": fen(predict(c.reshape(1, 64, 1600))[0]), "tmpl": 1})
-FIX = {}      # (стр, № доски, поле): фигура; «.» — пусто. Проверено глазами
+FIX = {(118, 1, "e7"): "q"}      # (стр, № доски, поле): фигура; «.» — пусто. Проверено глазами
 for r in res:
     for (p, k, sq), pc in FIX.items():
         if (r["p"], r["k"]) == (p, k):
