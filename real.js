@@ -317,6 +317,7 @@ function bindBoard(host, handler) {
     down = null;
   });
   host.addEventListener("contextmenu", e => e.preventDefault());
+  host.addEventListener("kombi-desel", () => handler("desel", null));   /* правая кнопка снимает выделение */
 }
 const checkSq = fen => {
   if (!inCheckNow(fen)) return "";
@@ -915,6 +916,7 @@ async function open(v, arg) {
   go(v, arg);
 }
 function go(v, arg) {
+  if (view === "rep" && v !== "rep") anaStop();
   view = v;
   window.scrollTo(0, 0);
   if (v === "lib") renderLib();
@@ -1291,10 +1293,11 @@ function onSq(kind, sq) {
   if (!G || G.over || G.view >= 0 || view !== "play") { if (G && G.view >= 0) { G.view = -1; paint(); } return; }
   const fen = gFen(), pos = parseFen(fen);
   const can = (from, to) => from && to !== from && legalTargets(fen, from).indexOf(to) >= 0;
+  if (kind === "desel") { if (G.sel) { G.sel = null; paint(); } return; }
   if (kind === "down") {
     if (can(G.sel, sq)) { userMove(G.sel, sq); return; }
     const pc = pos[sq];
-    G.sel = pc && (isW(pc) ? "w" : "b") === G.user ? sq : null;
+    G.sel = sq !== G.sel && pc && (isW(pc) ? "w" : "b") === G.user ? sq : null;
     paint();
   } else if (can(G.sel, sq)) userMove(G.sel, sq);
 }
@@ -1388,7 +1391,7 @@ async function endGame(result, why) {
   G.thinking = false;
   if (clockT) { clearInterval(clockT); clockT = null; }
   E.stopAll();
-  REP = { g: G, busy: true, done: 0, i: G.fens.length - 1, src: "me" };
+  REP = { g: G, busy: true, done: 0, i: G.fens.length - 1, src: "me", var: [], sel: null, eng: !!S.cfg.anaOn };
   go("rep");
   const an = await analyse(G);
   if (!REP || REP.g !== G) return;
@@ -1479,9 +1482,14 @@ function renderRep() {
         <div class="sp"></div><span class="who" id="rlWhere"></span></div>
       <div class="rvbwrap"><div class="rvebar" id="rlBar"><i></i><b></b></div><div class="boardgrid" id="rlBoard"></div></div>
       <div class="rvnav"><button id="rlF">⏮</button><button id="rlP">◀</button><button id="rlN">▶</button><button id="rlL">⏭</button></div>
+      <div class="rl-var gone" id="rlVar"></div>
       <div class="rl-moves rl-moves2" id="rlMoves"></div>
     </div>
     <div class="rvpanel">
+      <div class="rvcard rl-eng"><div class="rl-engh"><h4>Stockfish 19</h4><span id="rlEngD"></span><div class="sp"></div>
+        <button class="ghost" id="rlEngBtn">${REP.eng ? "Выключить" : "Включить анализ"}</button></div>
+        <div id="rlEngBody"></div>
+        <p class="rvhint" style="margin-top:8px">Двигай фигуры на доске — движок посчитает любую позицию. Клик по линии — проиграть её на доске, ◀ — шаг назад.</p></div>
       <div class="rvcard rl-verd ${rev ? (r === "loss" ? "bad" : "good") : (r === "win" ? "good" : "bad")}">
         <div class="rl-big">${verdictTitle(game)}</div>
         <p class="rl-p">${h(WHY[game.over.why] || "")}${rev ? ` · продержался ${myN} ${plural(myN, "ход", "хода", "ходов")}` : ""}</p>
@@ -1511,18 +1519,19 @@ function renderRep() {
   renderGraph();
   renderPath(champ);
   root.querySelectorAll("#rlSrc button").forEach(b => b.onclick = () => {
-    REP.src = b.dataset.s; REP.i = 0; REP.mark = null;
+    REP.src = b.dataset.s; REP.i = 0; REP.mark = null; REP.var = []; REP.sel = null;
     root.querySelectorAll("#rlSrc button").forEach(x => x.setAttribute("aria-pressed", x === b));
     paintRep();
   });
   const len = () => (REP.src === "me" ? game.fens.length : champ.length) - 1;
-  const step = i => { REP.i = clamp(i, 0, len()); REP.mark = null; paintRep(); };
-  $("rlF").onclick = () => step(0); $("rlP").onclick = () => step(REP.i - 1);
+  const step = i => { REP.i = clamp(i, 0, len()); REP.mark = null; REP.var = []; REP.sel = null; paintRep(); };
+  REP.back = () => { if (REP.var.length) { REP.var.pop(); REP.sel = null; paintRep(); } else step(REP.i - 1); };
+  $("rlF").onclick = () => step(0); $("rlP").onclick = () => REP.back();
   $("rlN").onclick = () => step(REP.i + 1); $("rlL").onclick = () => step(len());
   REP.step = step;
   root.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
     const m = REP.mist[+b.dataset.m];
-    REP.src = "me"; REP.i = m.i; REP.mark = m;
+    REP.src = "me"; REP.i = m.i; REP.mark = m; REP.var = []; REP.sel = null;
     root.querySelectorAll("#rlSrc button").forEach(x => x.setAttribute("aria-pressed", x.dataset.s === "me"));
     paintRep();
   });
@@ -1530,7 +1539,99 @@ function renderRep() {
   $("rlOther").onclick = () => newGame(g, !rev);
   if ($("rlPz")) $("rlPz").onclick = () => go("puz");
   $("rlBack").onclick = () => go("lib");
+  $("rlEngBtn").onclick = () => {
+    REP.eng = !REP.eng; S.cfg.anaOn = REP.eng; save();
+    $("rlEngBtn").textContent = REP.eng ? "Выключить" : "Включить анализ";
+    if (!REP.eng) anaStop();
+    paintRep();
+  };
+  bindBoard($("rlBoard"), repSq);
   bindCrumbs();
+}
+/* ---------- анализ в разборе: свои ходы и Stockfish ---------- */
+function baseFen() {
+  const game = REP.g, g = game.item;
+  return REP.src === "me" ? game.fens[REP.i] : nodesOf(g)[g.k + REP.i].fen;
+}
+const repFen = () => REP.var.length ? REP.var[REP.var.length - 1].fen : baseFen();
+function mainUci(i) {
+  const game = REP.g, g = game.item;
+  if (REP.src === "me") return game.ucis[i];
+  const n = nodesOf(g)[g.k + i + 1];
+  return n && n.uci;
+}
+function repSq(kind, sq) {
+  if (!REP || REP.busy || view !== "rep") return;
+  if (kind === "desel") { if (REP.sel) { REP.sel = null; paintRep(); } return; }
+  const fen = repFen(), can = (a, b) => a && a !== b && legalTargets(fen, a).indexOf(b) >= 0;
+  if (can(REP.sel, sq)) { repMove(REP.sel, sq); return; }
+  if (kind === "up") return;
+  const pc = parseFen(fen)[sq];
+  REP.sel = sq !== REP.sel && pc && isW(pc) === (sideOf(fen) === "w") ? sq : null;
+  paintRep();
+}
+function repMove(from, to) {
+  const fen = repFen(), pc = parseFen(fen)[from];
+  const promo = pc && pc.toLowerCase() === "p" && /[18]$/.test(to) ? "q" : undefined;
+  const mv = makeMove(fen, from, to, promo);
+  REP.sel = null;
+  if (!mv) { paintRep(); return; }
+  if (!REP.var.length) {                     /* это и есть следующий ход партии — просто идём дальше */
+    const u = mainUci(REP.i);
+    if (u && u.slice(0, 4) === mv.uci.slice(0, 4)) { REP.step(REP.i + 1); return; }
+  }
+  REP.var.push({ fen: mv.fen, uci: mv.uci, san: mv.san, prev: fen });
+  REP.mark = null;
+  paintRep();
+}
+let anaTok = 0;
+function anaStop() {
+  anaTok++;
+  if (REP) { REP.live = null; REP.anaFen = null; }
+  E.stopAll();
+}
+async function anaRun() {
+  if (!REP || !REP.eng || REP.busy) return;
+  const fen = repFen();
+  if (REP.anaFen === fen) return;
+  const tok = ++anaTok;
+  REP.anaFen = fen;
+  E.stopAll();
+  if (!anyLegal(fen)) { REP.live = { fen, pvs: [], depth: 0, over: true }; renderEng(); return; }
+  if (!(await E.load())) { const b = $("rlEngBody"); if (b) b.innerHTML = '<p class="rl-p">Stockfish не загрузился.</p>'; return; }
+  for (const d of [10, 14, 18, 22]) {
+    if (tok !== anaTok) return;
+    const r = await E.go({ fen, depth: d, multipv: 3, cap: 12000 });
+    if (tok !== anaTok || r.cancelled || !r.pvs.length) return;
+    REP.live = { fen, pvs: r.pvs, depth: r.depth || d };
+    if (view === "rep") paintRep();
+  }
+}
+function evPv(p, fen) {
+  const stm = sideOf(fen);
+  if (p.kind === "mate") return ((p.val > 0) === (stm === "w") ? "#" : "#−") + Math.abs(p.val || 0);
+  return evTxt(cpOf(p) * (stm === "w" ? 1 : -1));
+}
+function renderEng() {
+  const body = $("rlEngBody"), d = $("rlEngD");
+  if (!body) return;
+  if (!REP.eng) { body.innerHTML = ""; d.textContent = ""; return; }
+  const fen = repFen(), L = REP.live;
+  if (!L || L.fen !== fen) { body.innerHTML = '<p class="rl-p" style="margin:0"><span class="rvspin"></span> Считаю…</p>'; d.textContent = ""; return; }
+  if (L.over) { body.innerHTML = '<p class="rl-p" style="margin:0">' + (inCheckNow(fen) ? "Мат." : "Ходов нет — ничья.") + "</p>"; d.textContent = ""; return; }
+  d.textContent = "глубина " + L.depth;
+  body.innerHTML = L.pvs.map((p, i) => `<button class="rl-eline" data-i="${i}"><b>${evPv(p, fen)}</b><span>${pvToSan(fen, p.pv, 10)}</span></button>`).join("");
+  body.querySelectorAll(".rl-eline").forEach(b => b.onclick = () => {
+    const p = L.pvs[+b.dataset.i];
+    let f = fen;
+    for (const u of p.pv.slice(0, 8)) {
+      const mv = makeMove(f, u.slice(0, 2), u.slice(2, 4), u[4]);
+      if (!mv) break;
+      REP.var.push({ fen: mv.fen, uci: mv.uci, san: mv.san, prev: f }); f = mv.fen;
+    }
+    REP.mark = null; REP.sel = null;
+    paintRep();
+  });
 }
 function verdictTitle(game) {
   const r = game.over.result;
@@ -1559,9 +1660,27 @@ function paintRep() {
     fen = n.fen; if (n.from) last = [n.from, n.to];
     cpw = g.ev[g.k + REP.i];
   }
-  drawBoard($("rlBoard"), fen, { flip: game.user === "b", last, check: checkSq(fen), arrows });
-  ebar($("rlBar"), cpw || 0, fen, game.user === "b");
-  $("rlWhere").textContent = REP.mark ? "красная — твой ход, зелёная — лучше" : (REP.i ? "после " + REP.i + "-го полухода" : "тренировочная позиция");
+  if (REP.var.length) {
+    const v = REP.var[REP.var.length - 1];
+    fen = v.fen; last = [v.uci.slice(0, 2), v.uci.slice(2, 4)]; cpw = null; arrows = [];
+  }
+  const L = REP.eng && REP.live && REP.live.fen === fen && REP.live.pvs.length ? REP.live : null;
+  if (L) {
+    cpw = cpOf(L.pvs[0]) * (sideOf(fen) === "w" ? 1 : -1);
+    const u = L.pvs[0].pv[0];
+    if (u && !REP.mark) arrows.push([u.slice(0, 2), u.slice(2, 4), "blue"]);
+  }
+  drawBoard($("rlBoard"), fen, { flip: game.user === "b", last, check: checkSq(fen), arrows, sel: REP.sel });
+  if (cpw != null) ebar($("rlBar"), cpw, fen, game.user === "b");
+  $("rlWhere").textContent = REP.var.length ? "свой вариант" : REP.mark ? "красная — твой ход, зелёная — лучше" : (REP.i ? "после " + REP.i + "-го полухода" : "тренировочная позиция");
+  const vb = $("rlVar");
+  vb.classList.toggle("gone", !REP.var.length);
+  if (REP.var.length) {
+    vb.innerHTML = "<b>Свой вариант:</b> " + pvToSan(REP.var[0].prev, REP.var.map(x => x.uci), 40) + ' <button id="rlVarX">↺ к партии</button>';
+    $("rlVarX").onclick = () => { REP.var = []; REP.sel = null; paintRep(); };
+  }
+  renderEng();
+  anaRun();
   /* список ходов текущей партии */
   const list = REP.src === "me" ? game.sans.map((s, k) => ({ san: s, fen: game.fens[k] }))
     : champ.slice(1).map((n, k) => ({ san: n.san, fen: champ[k].fen }));
@@ -1683,11 +1802,12 @@ function renderPuz() {
   drawBoard($("rlBoard"), fen, { flip, sel: PZ.state === "ask" ? PZ.sel : null, arrows, last: PZ.last, check: checkSq(fen) });
   bindBoard($("rlBoard"), (kind, sq) => {
     if (PZ.state !== "ask" || PZ.busy) return;
+    if (kind === "desel") { if (PZ.sel) { PZ.sel = null; renderPuz(); } return; }
     const pos = parseFen(p.fen), can = (a, b) => a && a !== b && legalTargets(p.fen, a).indexOf(b) >= 0;
     if (kind === "down") {
       if (can(PZ.sel, sq)) { puzTry(PZ.sel, sq); return; }
       const pc = pos[sq];
-      PZ.sel = pc && (isW(pc) ? "w" : "b") === p.side ? sq : null;
+      PZ.sel = sq !== PZ.sel && pc && (isW(pc) ? "w" : "b") === p.side ? sq : null;
       renderPuz();
     } else if (can(PZ.sel, sq)) puzTry(PZ.sel, sq);
   });
@@ -1787,7 +1907,10 @@ function onKey(e) {
   if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
   const d = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
   if (!d) return;
-  if (view === "rep" && REP && REP.step && !REP.busy) { REP.step(REP.i + d); e.preventDefault(); }
+  if (view === "rep" && REP && REP.step && !REP.busy) {
+    if (d < 0) REP.back(); else if (!REP.var.length) REP.step(REP.i + 1);
+    e.preventDefault();
+  }
   else if (view === "champ" && CV && CV.step) { CV.step(CV.i + d); e.preventDefault(); }
   else if (view === "play" && G) {
     const n = G.fens.length - 1, i = G.view < 0 ? n : G.view, j = clamp(i + d, 0, n);

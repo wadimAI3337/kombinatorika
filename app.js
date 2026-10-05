@@ -1178,6 +1178,7 @@ function bindBoard(){
   board.onpointerdown = e => {
     if (e.button === 2){
       const s2 = e.target.closest(".sq"); if (!s2) return;
+      if (st.sel && !mindBlind()){ st.sel = null; renderSolve(); }
       shDrag = { from:s2.dataset.sq, to:s2.dataset.sq, c:shapeColor(e) };
       board.setPointerCapture(e.pointerId); e.preventDefault(); return;
     }
@@ -1961,9 +1962,10 @@ function rdPlay(from, to){
     const fen = rdFen();
     if (rd.sel && legalTargets(fen, rd.sel).indexOf(sq) >= 0){ rdPlay(rd.sel, sq); return true; }
     const pc = parseFen(fen)[sq];
-    rd.sel = (pc && isW(pc) === (fen.split(" ")[1] === "w")) ? sq : null;
+    rd.sel = (sq !== rd.sel && pc && isW(pc) === (fen.split(" ")[1] === "w")) ? sq : null;
     rdPaint();
   };
+  host.addEventListener("kombi-desel", () => { if (rd && rd.sel){ rd.sel = null; rdPaint(); } });
   host.addEventListener("pointerdown", e => {
     const el = e.target.closest(".sq"); if (!el) return;
     e.preventDefault(); down = el.dataset.sq; onSq(down);
@@ -3210,9 +3212,10 @@ function boardDown(sq){
   const n = curNode(), pos = parseFen(n.fen);
   if (rv.sel && legalTargets(n.fen, rv.sel).indexOf(sq) >= 0){ playMove(rv.sel, sq); return; }
   const pc = pos[sq];
-  rv.sel = (pc && isW(pc) === (turnOf(n.fen) === "w")) ? sq : null;
+  rv.sel = (sq !== rv.sel && pc && isW(pc) === (turnOf(n.fen) === "w")) ? sq : null;
   renderBoard();
 }
+$$("rvBoard").addEventListener("kombi-desel", () => { if (rv.sel){ rv.sel = null; renderBoard(); } });
 
 /* ===== экран загрузки партии ===== */
 const EXAMPLE_PGN = "[Event \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2026.09.11\"]\n[Round \"-\"]\n[White \"wadim3337\"]\n[Black \"AmerNais\"]\n[Result \"1-0\"]\n[CurrentPosition \"3rr1k1/ppp3pp/3q2p1/2bPR3/1PPn1P2/6PP/P5BK/R1BQ4 b - b3 0 20\"]\n[Timezone \"UTC\"]\n[ECO \"A03\"]\n[ECOUrl \"https://www.chess.com/openings/Birds-Opening-Dutch-Variation-2.Nf3\"]\n[UTCDate \"2026.09.11\"]\n[UTCTime \"17:32:10\"]\n[WhiteElo \"1518\"]\n[BlackElo \"1548\"]\n[TimeControl \"600+5\"]\n[Termination \"wadim3337 won by resignation\"]\n[StartTime \"17:32:10\"]\n[EndDate \"2026.09.11\"]\n[EndTime \"17:45:05\"]\n[Link \"https://www.chess.com/game/live/174332344872\"]\n\n1. f4 {[%clk 0:10:04.2]} 1... d5 {[%clk 0:09:50.5]} 2. Nf3 {[%clk 0:10:07.6]} 2... Nc6 {[%clk 0:09:52.5]} 3. g3 {[%clk 0:10:09.9]} 3... Nf6 {[%clk 0:09:52.3]} 4. Bg2 {[%clk 0:10:13.9]} 4... Bf5 {[%clk 0:09:44.2]} 5. O-O {[%clk 0:09:38.1]} 5... e6 {[%clk 0:09:37.6]} 6. d3 {[%clk 0:09:41.1]} 6... Bc5+ {[%clk 0:09:25]} 7. e3 {[%clk 0:09:43.8]} 7... Ng4 {[%clk 0:09:12.5]} 8. Re1 {[%clk 0:09:47.7]} 8... O-O {[%clk 0:09:08.3]} 9. h3 {[%clk 0:09:51.5]} 9... Nf6 {[%clk 0:07:14.6]} 10. Nh4 {[%clk 0:09:52.2]} 10... Bg6 {[%clk 0:07:09.6]} 11. Nxg6 {[%clk 0:09:54.7]} 11... fxg6 {[%clk 0:07:09.7]} 12. Kh2 {[%clk 0:09:46.6]} 12... e5 {[%clk 0:06:52.9]} 13. e4 {[%clk 0:09:48.7]} 13... dxe4 {[%clk 0:06:23.4]} 14. dxe4 {[%clk 0:09:44.8]} 14... Qe7 {[%clk 0:06:12.4]} 15. Nc3 {[%clk 0:09:43.8]} 15... Rad8 {[%clk 0:05:59]} 16. Nd5 {[%clk 0:09:29.7]} 16... Nxd5 {[%clk 0:05:52.8]} 17. exd5 {[%clk 0:09:33.9]} 17... Nd4 {[%clk 0:02:35.9]} 18. Rxe5 {[%clk 0:09:35.1]} 18... Qd6 {[%clk 0:02:30.7]} 19. c4 {[%clk 0:09:35.1]} 19... Rfe8 {[%clk 0:02:24.4]} 20. b4 {[%clk 0:08:47.4]} 1-0\n";
@@ -5470,12 +5473,15 @@ function boardHandler(which){
     if (op.sel && legalTargets(fen, op.sel).indexOf(sq) >= 0){ playOn(which, op.sel, sq); return; }
     if (kind === "up") return;
     const pc = parseFen(fen)[sq];
-    op.sel = (pc && isW(pc) === (CH.turnOf(fen) === "w")) ? sq : null;
+    op.sel = (kind !== "desel" && sq !== op.sel && pc && isW(pc) === (CH.turnOf(fen) === "w")) ? sq : null;
     which === "edit" ? renderEdit() : renderTrain();
   };
 }
 bindBoardClicks("opEBoard", boardHandler("edit"));
 bindBoardClicks("opTBoard", boardHandler("train"));
+/* правая кнопка (рисование) снимает выделение фигуры */
+$$("opEBoard").addEventListener("kombi-desel", () => { if (op.sel){ op.sel = null; renderEdit(); } });
+$$("opTBoard").addEventListener("kombi-desel", () => { if (op.sel){ op.sel = null; renderTrain(); } });
 
 $$("opNew").onclick = () => newRep("");
 $$("opNewFold").onclick = newFolder;
@@ -5910,6 +5916,7 @@ window.KOMBI_APP = {
     if (e.button !== 2) return;
     const sq = e.target.closest(".sq"); if (!sq) return;
     e.preventDefault(); e.stopPropagation();
+    host.dispatchEvent(new CustomEvent("kombi-desel"));       /* доска снимает выделение фигуры */
     const st = state(host); st.sig = sig(host);
     st.drag = { from:sq.dataset.sq, to:sq.dataset.sq, c:shapeColor(e) };
     act = host; paint(host);
