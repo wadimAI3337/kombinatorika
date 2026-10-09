@@ -12,7 +12,7 @@ yak/06_parse.py и dvor/06_parse.py. Здесь только разметка э
   [[CONT]]                     страница начинается с продолжения абзаца
   [[REPEAT]]                   партия начинается с той же позиции, что и предыдущая
                                (без своей доски в книге) — повторяется последняя доска;
-                               [[REPEAT Гулько]] — возврат к партии: её первая доска
+                               [[REPEAT Гулько]] — возврат к партии: её последняя доска
   [[RESUME]]                   «Возвращаемся к партии»: ходы снова от позиции партии
                                (до первой диаграммы-отступления в разделе)
   **…**                        жирные ходы (главная линия)
@@ -50,10 +50,11 @@ def load():
                 flush()
                 tag, arg, rest = m.groups()
                 if tag == "REPEAT":        # партия с того же места, что и предыдущая: её доска ещё раз
-                    # [[REPEAT Гулько]] — первая доска партии, в шапке которой есть это слово
+                    # [[REPEAT Гулько]] — последняя доска партии, в шапке которой есть это слово
                     if (arg + rest).strip():
                         i0 = max(i for i, x in enumerate(items) if x[0] == "sec" and (arg + rest).strip() in x[1])
-                        last = next(x for x in items[i0:] if x[0] == "diag")
+                        i1 = next((i for i in range(i0 + 1, len(items)) if items[i][0] == "sec"), len(items))
+                        last = [x for x in items[i0:i1] if x[0] == "diag"][-1]
                     else: last = next(x for x in reversed(items) if x[0] == "diag")
                     items.append(("diag", dict(last[1]), p, None)); first = False; continue
                 if tag == "RESUME":
