@@ -410,7 +410,7 @@ def solutions(pages):
 
 REF = re.compile(r"(?:диаграмм\w*|позици\w+)\s+(\d+-\d+)")
 
-SIDE = re.compile(r"[Пп]ри\s+(?:своем\s+)?ходе\s+(белых|черных)")
+SIDE = re.compile(r"[Пп]ри\s+(?:своем\s+)?ходе\s+(белых|черных|белые|черные)")       # «При своем ходе белые побеждают»
 
 def twin(L, side):
     """та же позиция диаграммы, но ход другой стороны («При ходе белых решает …»)"""
@@ -431,7 +431,7 @@ def link_para(text, L, labels):
        после «при ходе белых» — от диаграммы с ходом белых; после абзаца
        положение возвращается"""
     cuts = [(m, labels[m.group(1)]) for m in REF.finditer(text) if m.group(1) in labels]
-    cuts += [(m, twin(L, "w" if m.group(1) == "белых" else "b")) for m in SIDE.finditer(text)]
+    cuts += [(m, twin(L, "w" if m.group(1).startswith("бел") else "b")) for m in SIDE.finditer(text)]
     cuts = sorted((c for c in cuts if c[1] is not None), key=lambda c: c[0].start())
     if not cuts: return P.link_paragraph(text, L)
     st = (L.cur, L.main, list(L.scope), list(L.stack))
@@ -501,7 +501,7 @@ def render_run(blocks, L, labels):
         if k == "diag":
             placement = pl["fen"]
             found = None
-            for nid in reversed(L.scope):
+            for nid in ([] if pl.get("new") else reversed(L.scope)):     # «№ 5» — новая позиция, не продолжение
                 f = L.t.fen(nid).split(" ")
                 if f[0] == placement and (pl["turn"] is None or f[1] == pl["turn"]): found = nid; break
             if pl.get("q"): L.sec0 = (len(L.t.nodes), len(L.t.roots))     # позиция «?» — отдельный пример
@@ -565,7 +565,7 @@ def render_chapter(ch, sols):
             head = (dg.get("n") or "") + (" | " + cap if cap else "")
             if dg.get("hard"): head += (" · " if cap else " | ") + "повышенной сложности"
             if head: add("game", head, {})
-            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}", "q": dg.get("q"), "num": dg.get("num")},
+            add("diag", {"n": dg.get("n"), "turn": dg.get("turn"), "small": False, "fen": dg["fen"], "src": f"{page}", "q": dg.get("q"), "num": dg.get("num"), "new": dg.get("new")},
                 {"q": 1} if dg.get("q") else {})
             hide = bool(dg.get("q"))
             sol = sols.get(dg.get("n")) if dg.get("q") else None

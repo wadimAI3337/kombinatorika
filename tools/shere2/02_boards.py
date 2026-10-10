@@ -13,7 +13,7 @@ def find(ink):
     out = []
     for sl in ndimage.find_objects(lab):
         h = sl[0].stop - sl[0].start; w = sl[1].stop - sl[1].start
-        if min(h, w) < 150 or abs(h - w) > .08 * max(h, w): continue
+        if min(h, w) < 150 or abs(h - w) > .10 * max(h, w): continue
         out.append((sl[0].start * 2, sl[1].start * 2, h * 2, w * 2))
     return [b for b in out if not any(o != b and o[0] <= b[0] and o[1] <= b[1] and
             o[0] + o[2] >= b[0] + b[2] and o[1] + o[3] >= b[1] + b[3] for o in out)]

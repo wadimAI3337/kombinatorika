@@ -65,7 +65,11 @@ def load():
                     src = f"{p}/{real[k]}" if k < len(real) else None
                     fen = FIX.get(src) or (fens.get((p, real[k])) if k < len(real) else None)
                     a = arg.split() + rest.split()
-                    items.append(("diag", {"n": None, "turn": next((x for x in a if x in ("w", "b")), None), "q": "?" in a,
+                    # «№ 5» перед доской (глава 19) — новая позиция, с прежними не сливается
+                    # (между «№ 8» и доской может стоять подпись «*Матисон (1918)*»)
+                    tail = [x for x in items[-2:] if x[0] == "p"]
+                    isnew = any(re.fullmatch(r"№\s*\d+", x[1].strip()) for x in tail) and items[-1][0] == "p"
+                    items.append(("diag", {"n": None, "new": isnew, "turn": next((x for x in a if x in ("w", "b")), None), "q": "?" in a,
                                            "num": next((int(x) for x in a if x.isdigit()), None),
                                            "fen": fen, "src": src}, p, None)); k += 1
                 elif tag == "CHAPTER":
