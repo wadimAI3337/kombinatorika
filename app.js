@@ -5362,12 +5362,24 @@ function curCard(){
   if (!want || CH.turnOf(n.fen) !== c.rep.side) return null;
   return { fen:n.fen, uci:want.uci, want, card: cardGet(c.rep, n.fen, want.uci) };
 }
-function isShowMode(){
+/* Почему ход надо показать, а не спрашивать: "new" — встречается впервые,
+   "wrong" — в прошлый раз ошибся, "old" — давно не видел и мог забыть.
+   Знание хода хранится по позиции, а не по варианту: общие ходы прошлых
+   вариантов уже знакомы, показываются только те, где новый вариант расходится. */
+const FORGET = 30;                    /* дней: перерыв дольше месяца — показываем заново */
+function showWhy(){
   const q = curCard();
-  if (!q) return false;
-  if (!q.card || !q.card.t) return true;                       /* ход вижу впервые — покажем */
-  return !!q.card.w && LS.get("kombi-op-prev", "1") === "1";   /* в прошлый раз ошибся */
+  if (!q) return "";
+  const c = q.card;
+  if (!c || !c.t) return "new";
+  if (c.w && LS.get("kombi-op-prev", "1") === "1") return "wrong";
+  /* перерыв больше месяца и больше двух запланированных интервалов: ход
+     с интервалом в 70 дней через 40 дней ещё не «забыт», а с интервалом в неделю — да */
+  const gap = (Date.now() - c.t) / DAY, ivl = IVL[Math.max(0, (c.step || 1) - 1)];
+  if (gap > Math.max(FORGET, 2 * ivl)) return "old";
+  return "";
 }
+function isShowMode(){ return !!showWhy(); }
 function markCard(q, kind){
   const r = op.train.cur.rep, now = Date.now(), c = q.card || { n:0, step:0, due:0, w:0, t:0 };
   if (kind === "show") cardSet(r, q.fen, q.uci, { n:Math.max(c.n, 1), step:1, due:now + IVL[0] * DAY, w:0, t:now });
@@ -5395,19 +5407,17 @@ function trainMove(from, to){
     setTimeout(() => { t.good = null; autoStep(); }, 260);
     return;
   }
-  /* ход из другой своей ветки — это тоже правильный ход, просто другая линия */
+  /* ход из другой своей ветки: на неё НЕ перескакиваем — иначе новый вариант
+     так и не пройти, руки сами идут по знакомому. Говорим, откуда ход, и
+     показываем, что здесь в учимом варианте. Не ошибка: ход-то верный, но
+     развилку надо запомнить — в следующий раз этот ход спросим с подсказкой */
   const alt = altLineWith(t, mv);
   if (alt){
-    if (stOf(t.line).reps < (t.rep.target || 3) && !op.train.tries[t.line.id])
-      op.train.q.push({ rep:t.rep, line:t.line });     /* исходную линию вернём в очередь */
-    t.line = alt.line;
-    t.nodes = alt.nodes;
-    t.winFrom = t.i;
-    t.i++;
-    op.sel = null; t.good = mv.to;
-    toast("Ветка: " + alt.line.name);
+    if (show) t.shown = true;
+    else { t.helped = true; if (q) markCard(q, "bad"); saveReps(); }
+    t.wrong = { san:mv.san, to:mv.to, alt: alt.line.name, show:true };
+    op.sel = null;
     renderTrain();
-    setTimeout(() => { t.good = null; autoStep(); }, 260);
     return;
   }
   /* ошибка (в режиме показа не наказываем — это знакомство) */
@@ -5621,6 +5631,15 @@ function renderTrain(){
     return;
   }
   /* ошибся */
+  if (c.wrong && c.wrong.alt){
+    const want = figurine(c.nodes[c.i + 1].san, c.rep.side);
+    setMode("Развилка", "learn");
+    ask(`<b>${figurine(c.wrong.san, c.rep.side)}</b> — это ход из варианта «${esc(c.wrong.alt)}».`,
+      `Сейчас учим «${esc(c.line.name)}»: здесь варианты расходятся, и в нём идёт <b>${want}</b>. ` +
+      "Запомни развилку — в следующий раз здесь спрошу.");
+    setActsT([{ t:"Понял, дальше →", go:1, f:acceptCorrection }]);
+    return;
+  }
   if (c.wrong){
     const want = figurine(c.nodes[c.i + 1].san, c.rep.side);
     setMode(c.wrong.show ? "Показываю" : "Ошибка", c.wrong.show ? "learn" : "bad");
@@ -5639,10 +5658,12 @@ function renderTrain(){
   }
   if (show){
     setMode("Показываю", "learn");
-    const first = !q.card || !q.card.t;
+    const why = showWhy();
     ask(`Сыграй <b>${figurine(q.want.san, c.rep.side)}</b> — ход показан стрелкой.`,
-      first ? "Этот ход встречается впервые: сначала запоминаем, проверю в следующий раз."
-            : "В прошлый раз здесь была ошибка — повторим с подсказкой.");
+      why === "new" ? (c.i ? "Здесь вариант расходится с тем, что ты уже знаешь: новый ход, сначала запоминаем, проверю в следующий раз."
+                           : "Этот ход встречается впервые: сначала запоминаем, проверю в следующий раз.")
+      : why === "old" ? "Давно не повторял этот ход — показываю заново, проверю в следующий раз."
+      : "В прошлый раз здесь была ошибка — повторим с подсказкой.");
     setActsT([{ t:"Пропустить вариант", f:() => { c.helped = true; while (c.i < c.nodes.length - 1) c.i++; finishLine(); } }]);
     return;
   }
