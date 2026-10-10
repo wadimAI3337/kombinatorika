@@ -4453,10 +4453,11 @@ function renderSubs(){
   box.classList.remove("gone");
   const open = op.subsOpen || {};
   const groups = [];
+  /* группа — глава + ветка верхнего уровня: у разных глав бывают одинаковые ходы */
   ex.forEach(l => {
-    const t = subParts(l).top;
-    let g = groups.find(x => x.top === t);
-    if (!g) groups.push(g = { top:t, lines:[] });
+    const t = subParts(l).top, key = (l.group || "") + "|" + t;
+    let g = groups.find(x => x.key === key);
+    if (!g) groups.push(g = { key, top:t, group:l.group || "", lines:[] });
     g.lines.push(l);
   });
   box.innerHTML = `<div class="opsubhead"><div><b>Подварианты — только посмотреть</b>
@@ -4465,12 +4466,13 @@ function renderSubs(){
       <span class="sp"></span>
       ${ex.length ? `<button data-x="all">Все в тренировку</button>` : ""}
       ${trained.length ? `<button data-x="back">Убрать из тренировки (${trained.length})</button>` : ""}</div>` +
-    (op.treeView ? [] : groups).map((g, gi) => `<div class="opsubgrp${open[g.top] ? " open" : ""}">
-      <button class="opsubtop" data-g="${gi}"><i>›</i>ветка <b>${esc(g.top)}</b>
-        <span>${g.lines.length} ${wordSub(g.lines.length)}</span></button>
+    (op.treeView ? [] : groups).map((g, gi) => `<div class="opsubgrp${open[g.key] ? " open" : ""}">
+      <button class="opsubtop" data-g="${gi}"><i>›</i>${g.group ? `<span class="opgrp">${esc(g.group)}</span>` : ""}ветка <b>${esc(g.top)}</b>
+        <span class="n">${g.lines.length} ${wordSub(g.lines.length)}</span></button>
       <div class="opsubrows">` + g.lines.map(l => {
         const nb = noteCount(l);
-        return `<div class="opsubrow"><div class="lb"><div class="nm">${esc(subParts(l).rest)}` +
+        /* полное имя — ровно то, под которым подвариант встанет в тренировку */
+        return `<div class="opsubrow"><div class="lb"><div class="nm">${esc(l.name)}` +
           (nb ? ` <span class="opnb" title="комментариев к ходам">✎ ${nb}</span>` : "") + `</div>
           <span class="mv">${subTail(l)}</span></div>
           <button class="go" data-v="${l.id}">Смотреть</button>
@@ -4480,12 +4482,13 @@ function renderSubs(){
   const byId = id => ex.find(l => l.id === id);
   box.querySelectorAll("[data-g]").forEach(b => b.onclick = () => {
     const g = groups[+b.dataset.g];
-    op.subsOpen = Object.assign({}, op.subsOpen || {}, { [g.top]: !open[g.top] });
-    b.parentNode.classList.toggle("open");
+    const now = b.parentNode.classList.toggle("open");
+    op.subsOpen = Object.assign({}, op.subsOpen || {}, { [g.key]: now });
   });
   box.querySelectorAll("[data-v]").forEach(b => b.onclick = () => viewSub(r, byId(b.dataset.v)));
   box.querySelectorAll("[data-t]").forEach(b => b.onclick = () => {
-    moveSubs(r, [byId(b.dataset.t)], true); toast("Подвариант теперь в тренировке");
+    const l = byId(b.dataset.t);
+    moveSubs(r, [l], true); toast("«" + l.name + "» теперь в тренировке");
   });
   box.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
     const l = byId(b.dataset.d), i = ex.indexOf(l);
@@ -4607,7 +4610,7 @@ function buildTree(lines){
 }
 function leafHtml(r, l){
   if (extraOf(r).indexOf(l) >= 0)
-    return `<span class="leaf view"><b>${esc(subParts(l).rest)}</b>` +
+    return `<span class="leaf view"><b title="${escA(l.name)}">${esc(l.name)}</b>` +
            `<span class="opstate" style="min-width:auto">только посмотреть</span>` +
            `<button class="go" data-view="${l.id}">смотреть</button>` +
            `<button data-learn="${l.id}" title="Перенести подвариант в тренировку">учить</button></span>`;
@@ -5780,7 +5783,7 @@ $$("opTree").addEventListener("click", e => {
   }
   if (b.dataset.learn){
     const l = extraOf(op.rep).find(x => x.id === b.dataset.learn);
-    if (l){ moveSubs(op.rep, [l], true); toast("Подвариант теперь в тренировке"); }
+    if (l){ moveSubs(op.rep, [l], true); toast("«" + l.name + "» теперь в тренировке"); }
     return;
   }
   if (b.dataset.del){
