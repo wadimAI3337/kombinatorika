@@ -3909,7 +3909,10 @@ function loadReps(){
     r.lines.forEach(l => { l.st = l.st || { reps:0, runs:0, errs:0, due:0, step:0, last:0 };
       l.start = l.start || START0; l.group = l.group || "";
       l.notes = (l.notes && typeof l.notes === "object") ? l.notes : {};
-      l.glyphs = (l.glyphs && typeof l.glyphs === "object") ? l.glyphs : {}; }); });
+      l.glyphs = (l.glyphs && typeof l.glyphs === "object") ? l.glyphs : {}; });
+    r.extra = Array.isArray(r.extra) ? r.extra : [];
+    r.extra.forEach(l => { l.start = l.start || START0; l.group = l.group || "";
+      l.notes = l.notes || {}; l.glyphs = l.glyphs || {}; }); });
 }
 function saveReps(){ try { localStorage.setItem("kombi-op", JSON.stringify(reps)); } catch(e){} }
 
@@ -4090,13 +4093,18 @@ function cleanNote(t){
 }
 /* PGN с вариантами -> линии. Каждая линия несёт свои комментарии и знаки,
    привязанные к номеру полухода: notes[k] — комментарий к ходу sans[k],
-   notes["-1"] — то, что написано до первого хода (вступление главы). */
+   notes["-1"] — то, что написано до первого хода (вступление главы).
+   forks — на каких полуходах линия сворачивала в скобки: [] у основной,
+   [k] у ветки прямо от основной, [k, m, …] у подвариантов внутри веток. */
 function pgnLines(text, start){
-  let body = text.replace(/^\s*\[[^\]]*\]\s*$/gm, " ").replace(/;[^\n]*/g, " ");
-  const toks = body.match(/\(|\)|\{[^}]*\}|[^\s(){}]+/g) || [];
+  let body = text.replace(/^\s*\[[^\]]*\]\s*$/gm, " ");
+  /* «;» — комментарий до конца строки, но только вне {…}: внутри
+     комментариев lichess это обычная точка с запятой, а глава у него
+     одной строкой — вырезав по ней, теряли всё, что дальше */
+  const toks = (body.match(/\{[^}]*\}?|;[^\n]*|\(|\)|[^\s(){};]+/g) || []).filter(t => t[0] !== ";");
   const out = [];
-  let path = [];
-  const stack = [];
+  let path = [], fk = [];
+  const stack = [], fstack = [];
   const cmt = {}, nag = {};           /* ключ — путь ходов от начала, то есть узел дерева */
   const at = () => path.join(" ");
   const addNote = (key, t) => {
@@ -4119,11 +4127,13 @@ function pgnLines(text, start){
     const parent = stack[stack.length - 1];
     if (!parent) return;
     const k = plyOf(num, black);
-    if (k >= 0 && k <= parent.length) path = parent.slice(0, k);
+    if (k >= 0 && k <= parent.length){ path = parent.slice(0, k); fk[fk.length - 1] = k; }
   };
   for (const t of toks){
-    if (t === "("){ stack.push(path.slice()); path = path.slice(0, -1); waitNum = true; continue; }
-    if (t === ")"){ if (path.length) out.push(path.slice()); path = stack.pop() || []; waitNum = false; continue; }
+    if (t === "("){ stack.push(path.slice()); fstack.push(fk); path = path.slice(0, -1);
+                    fk = fk.concat([path.length]); waitNum = true; continue; }
+    if (t === ")"){ if (path.length) out.push({ p:path.slice(), fk });
+                    path = stack.pop() || []; fk = fstack.pop() || []; waitNum = false; continue; }
     if (t[0] === "{"){ addNote(at(), t); continue; }
     if (t[0] === "$"){ addNag(at(), +t.slice(1)); continue; }
     const only = t.match(/^(\d+)\.(\.\.)?$/);
@@ -4140,13 +4150,23 @@ function pgnLines(text, start){
       if (mark) nag[at()] = mark;
     }
   }
-  if (path.length) out.push(path);
-  /* выкидываем пути, которые целиком лежат внутри других */
-  const keys = out.map(p => p.join(" "));
-  const keep = out.filter((p, i) => !keys.some((k, j) => j !== i && (k === keys[i] ? j < i : k.indexOf(keys[i] + " ") === 0)));
+  if (path.length) out.push({ p:path, fk:[] });
+  /* выкидываем пути, которые целиком лежат внутри других; продолжение
+     забирает себе «уровень» поглощённого, если тот был ближе к основной */
+  const keys = out.map(o => o.p.join(" "));
+  const keep = out.filter((o, i) => {
+    const j = keys.findIndex((k, j) => j !== i && (k === keys[i] ? j < i : k.indexOf(keys[i] + " ") === 0));
+    if (j >= 0 && o.fk.length < out[j].fk.length) out[j].fk = o.fk;
+    return j < 0;
+  });
+  /* основная первой, дальше ветки по порядку — как читаются в книге */
+  const cmpFk = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+                            return a.length - b.length; };
+  keep.sort((a, b) => cmpFk(a.fk, b.fk));
   /* комментарий лежит на узле дерева, а значит достаётся всем линиям,
      которые через этот узел проходят — ровно на том же ходу */
-  return keep.filter(p => nodesOf(p, start).length === p.length + 1).map(p => {
+  return keep.filter(o => nodesOf(o.p, start).length === o.p.length + 1).map(o => {
+    const p = o.p;
     const notes = {}, glyphs = {};
     if (cmt[""]) notes["-1"] = cmt[""];
     for (let k = 0; k < p.length; k++){
@@ -4154,7 +4174,7 @@ function pgnLines(text, start){
       if (cmt[key]) notes[k] = cmt[key];
       if (nag[key]) glyphs[k] = nag[key];
     }
-    return { sans: p, notes, glyphs };
+    return { sans: p, notes, glyphs, forks: o.fk };
   });
 }
 /* комментарий к позиции, в которую пришли после i ходов */
@@ -4308,6 +4328,8 @@ function whereStored(){
 }
 const wordVar = n => (n % 10 === 1 && n % 100 !== 11) ? "вариант"
   : ([2,3,4].indexOf(n % 10) >= 0 && [12,13,14].indexOf(n % 100) < 0) ? "варианта" : "вариантов";
+const wordSub = n => (n % 10 === 1 && n % 100 !== 11) ? "подвариант"
+  : ([2,3,4].indexOf(n % 10) >= 0 && [12,13,14].indexOf(n % 100) < 0) ? "подварианта" : "подвариантов";
 
 let newSide = "w";
 function newRep(folder){
@@ -4355,6 +4377,7 @@ function renderRep(){
   const r = op.rep, s = repStats(r), ms = moveStats(r);
   fillGroupList();
   renderSkip();
+  renderSubs();
   if (op.treeView){ renderTree(); }
   $$("opTree").classList.toggle("gone", !op.treeView);
   $$("opLines").classList.toggle("gone", !!op.treeView);
@@ -4401,6 +4424,91 @@ function renderRep(){
     });
     host.appendChild(el);
   });
+}
+
+/* ---------- подварианты: только посмотреть ----------
+   Плоский список вместо лесенки скобок, как на lichess: каждая строка —
+   один подвариант целиком, имя — путь сворачиваний «5…Nc6 → 6…Bd6 → 10…e5»,
+   ходы показаны с того места, где он отходит. Группы — по ветке верхнего
+   уровня, свёрнуты, пока не откроешь. */
+function subTail(l){
+  const k = Math.max(0, (l.fork || 0) - 1), ns = nodesOf(l.sans, lineStart(l));
+  return (k ? "… " : "") + sanLine(l.sans.slice(k), 14, (ns[k] || ns[0]).fen);
+}
+function subParts(l){
+  const i = l.name.indexOf(" · "), chain = i >= 0 ? l.name.slice(i + 3) : l.name;
+  const a = chain.split(" → ");
+  return { top: a[0], rest: a.slice(1).join(" → ") || a[0] };
+}
+function moveSubs(r, list, toTrain){
+  const ids = {}; list.forEach(l => ids[l.id] = 1);
+  if (toTrain){ r.extra = extraOf(r).filter(l => !ids[l.id]); r.lines = r.lines.concat(list); }
+  else { r.lines = r.lines.filter(l => !ids[l.id]); r.extra = extraOf(r).concat(list); }
+  saveReps(); renderRep(); renderList();
+}
+function renderSubs(){
+  const r = op.rep, box = $$("opSubs"), ex = extraOf(r);
+  const trained = r.lines.filter(l => l.sub);
+  if (!ex.length && !trained.length){ box.classList.add("gone"); box.innerHTML = ""; return; }
+  box.classList.remove("gone");
+  const open = op.subsOpen || {};
+  const groups = [];
+  ex.forEach(l => {
+    const t = subParts(l).top;
+    let g = groups.find(x => x.top === t);
+    if (!g) groups.push(g = { top:t, lines:[] });
+    g.lines.push(l);
+  });
+  box.innerHTML = `<div class="opsubhead"><div><b>Подварианты — только посмотреть</b>
+      <span>${ex.length ? ex.length + " " + wordSub(ex.length) + " внутри веток · в тренировку не идут" +
+        (op.treeView ? " · в дереве они приглушены" : "") : "все подварианты сейчас в тренировке"}</span></div>
+      <span class="sp"></span>
+      ${ex.length ? `<button data-x="all">Все в тренировку</button>` : ""}
+      ${trained.length ? `<button data-x="back">Убрать из тренировки (${trained.length})</button>` : ""}</div>` +
+    (op.treeView ? [] : groups).map((g, gi) => `<div class="opsubgrp${open[g.top] ? " open" : ""}">
+      <button class="opsubtop" data-g="${gi}"><i>›</i>ветка <b>${esc(g.top)}</b>
+        <span>${g.lines.length} ${wordSub(g.lines.length)}</span></button>
+      <div class="opsubrows">` + g.lines.map(l => {
+        const nb = noteCount(l);
+        return `<div class="opsubrow"><div class="lb"><div class="nm">${esc(subParts(l).rest)}` +
+          (nb ? ` <span class="opnb" title="комментариев к ходам">✎ ${nb}</span>` : "") + `</div>
+          <span class="mv">${subTail(l)}</span></div>
+          <button class="go" data-v="${l.id}">Смотреть</button>
+          <button data-t="${l.id}" title="Перенести этот подвариант в тренировку">Учить</button>
+          <button data-d="${l.id}" title="Удалить подвариант">✕</button></div>`;
+      }).join("") + `</div></div>`).join("");
+  const byId = id => ex.find(l => l.id === id);
+  box.querySelectorAll("[data-g]").forEach(b => b.onclick = () => {
+    const g = groups[+b.dataset.g];
+    op.subsOpen = Object.assign({}, op.subsOpen || {}, { [g.top]: !open[g.top] });
+    b.parentNode.classList.toggle("open");
+  });
+  box.querySelectorAll("[data-v]").forEach(b => b.onclick = () => viewSub(r, byId(b.dataset.v)));
+  box.querySelectorAll("[data-t]").forEach(b => b.onclick = () => {
+    moveSubs(r, [byId(b.dataset.t)], true); toast("Подвариант теперь в тренировке");
+  });
+  box.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
+    const l = byId(b.dataset.d), i = ex.indexOf(l);
+    ex.splice(i, 1); saveReps(); renderRep();
+    toast("Удалён подвариант", false, { t:"вернуть", f:() => { ex.splice(i, 0, l); saveReps(); renderRep(); } });
+  });
+  const all = box.querySelector('[data-x="all"]');
+  if (all) all.onclick = () => { const n = ex.length; moveSubs(r, ex.slice(), true);
+    toast("В тренировку добавлено " + n + " " + wordSub(n)); };
+  const back = box.querySelector('[data-x="back"]');
+  if (back) back.onclick = () => { moveSubs(r, trained, false);
+    toast("Подварианты снова только для просмотра — прогресс по ним сохранён"); };
+}
+/* просмотр подварианта: та же доска, что и правка, открытая на ходе,
+   где он сворачивает; ↑ ↓ листают соседние ветки, включая подварианты */
+function viewSub(r, l){
+  if (!l) return;
+  openEdit(r, null, l.sans.slice(), lineStart(l), l.group || "", l);
+  op.edit.viewId = l.id;
+  op.edit.i = Math.min((l.fork || 0) + 1, l.sans.length);
+  $$("opELab").textContent = "Подвариант — только просмотр";
+  $$("opEName").value = l.name;
+  renderEdit();
 }
 
 /* ---------- проверка линий движком: не тащим в тренировку то, где нам плохо ---------- */
@@ -4498,6 +4606,11 @@ function buildTree(lines){
   return root;
 }
 function leafHtml(r, l){
+  if (extraOf(r).indexOf(l) >= 0)
+    return `<span class="leaf view"><b>${esc(subParts(l).rest)}</b>` +
+           `<span class="opstate" style="min-width:auto">только посмотреть</span>` +
+           `<button class="go" data-view="${l.id}">смотреть</button>` +
+           `<button data-learn="${l.id}" title="Перенести подвариант в тренировку">учить</button></span>`;
   const st = stOf(l), t = r.target || 3, s = lineState(r, l);
   let dots = "";
   for (let i = 0; i < t; i++) dots += `<i class="${i < st.reps ? "on" : ""}"></i>`;
@@ -4556,7 +4669,9 @@ function renderTree(){
       `<button data-gdel="${esc(g.key)}" title="Удалить всю группу">✕</button>`;
     box.appendChild(head);
     const frag = document.createDocumentFragment();
-    renderBranch(buildTree(g.lines), [], g, 0, frag);
+    /* подварианты «для просмотра» встают в то же дерево, но приглушённо */
+    const views = extraOf(r).filter(l => lineStart(l) + "|" + (l.group || "") === g.key);
+    renderBranch(buildTree(g.lines.concat(views)), [], g, 0, frag);
     box.appendChild(frag);
     host.appendChild(box);
   });
@@ -4711,7 +4826,10 @@ function renderEdit(){
         figurine(c.san, CH.turnOf(n.fen)) + "</button>").join(" ");
     cbox.querySelectorAll("[data-san]").forEach(b => b.onclick = () => editFollow(b.dataset.san));
   } else cbox.classList.add("gone");
-  const fk = forkNote();
+  /* смотрим подвариант и ничего не меняли — подсказки про «новую ветку» тут не к месту */
+  const viewing = !!op.edit.viewId && !op.edit.dirty;
+  $$("opESave").textContent = viewing ? "Учить этот подвариант" : "Сохранить";
+  const fk = viewing ? null : forkNote();
   const note = $$("opEFork");
   if (fk){
     note.classList.remove("gone");
@@ -4787,7 +4905,7 @@ function trimNotes(i){
 /* ходы, которые из этой позиции уже есть в репертуаре */
 function contAt(pre){
   const r = op.rep, key = pre.join(" "), out = [];
-  r.lines.forEach(l => {
+  r.lines.concat(extraOf(r)).forEach(l => {
     if (lineStart(l) !== op.edit.start || l.sans.length <= pre.length) return;
     if (l.sans.slice(0, pre.length).join(" ") !== key) return;
     const s = l.sans[pre.length];
@@ -4843,14 +4961,16 @@ function cycleAlt(dir){
     trimNotes(at);
     op.edit.sans = pre.concat([pick.san]);
   } else {
+    const view = extraOf(op.rep).indexOf(pick.line) >= 0;
     op.edit.sans = pick.line.sans.slice();       /* перескакиваем на сам вариант целиком */
-    op.edit.lineId = pick.line.id;
+    op.edit.lineId = view ? null : pick.line.id;
+    op.edit.viewId = view ? pick.line.id : null;
     op.edit.notes = Object.assign({}, pick.line.notes || {});
     op.edit.glyphs = Object.assign({}, pick.line.glyphs || {});
     op.edit.group = pick.line.group || "";
     $$("opEName").value = pick.line.name;
     $$("opEGroup").value = op.edit.group;
-    $$("opELab").textContent = "Правка варианта";
+    $$("opELab").textContent = view ? "Подвариант — только просмотр" : "Правка варианта";
   }
   op.edit.i = Math.min(at + 1, op.edit.sans.length);
   op.sel = null; renderEdit();
@@ -4901,6 +5021,8 @@ function saveEdit(forceNew){
   flushNote();
   const r = op.rep, sans = op.edit.sans, start = op.edit.start, key = sans.join(" ");
   if (!sans.length){ toast("В варианте нет ходов — сыграй их на доске.", 1); return; }
+  /* сохранил подвариант с доски — значит, хочет его учить: копия «для просмотра» больше не нужна */
+  r.extra = extraOf(r).filter(l => !(lineStart(l) === start && l.sans.join(" ") === key));
   let name = $$("opEName").value.trim();
   const group = $$("opEGroup").value.trim();
   op.edit.group = group;
@@ -4947,6 +5069,7 @@ function saveEdit(forceNew){
   const fresh = { id:uid(), start, group: group || (old ? old.group : "") || "",
     name: nm, sans, notes, glyphs,
     st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } };
+  if (op.edit.viewId && !op.edit.dirty){ fresh.sub = true; fresh.name = name || fresh.name; }
   r.lines.push(fresh);
   const n = spreadNotes(r, fresh, touched);
   saveReps(); op.edit = null; renderRep(); opShow("rep");
@@ -5007,11 +5130,13 @@ async function fetchSource(raw){
   return text;
 }
 function studyTitle(text){
-  const st = text.match(/\[StudyName\s+"([^"]*)"\]/);
-  if (st && st[1].trim()) return st[1].trim();
-  const ev = text.match(/\[Event\s+"([^"]*)"\]/);
-  if (ev && ev[1].trim()) return ev[1].split(":")[0].trim();
-  return "";
+  /* в названии бывают кавычки, lichess экранирует их как \" */
+  const tag = k => { const m = text.match(new RegExp('\\[' + k + '\\s+"((?:[^"\\\\]|\\\\.)*)"\\]'));
+                     return m ? m[1].replace(/\\"/g, '"').trim() : ""; };
+  const st = tag("StudyName");
+  if (st) return st;
+  const ev = tag("Event");
+  return ev ? ev.split(":")[0].trim() : "";
 }
 async function importText(raw){
   const text = await fetchSource(raw);
@@ -5032,40 +5157,63 @@ async function loadNewRep(raw, side, folder){
   }
   saveReps(); renderList();
 }
+/* подпись хода для названий: «4…cxd4», «10.Bb2» */
+function moveTag(start, sans, k){
+  const m = plyMeta(start, k);
+  return m.num + (m.side === "w" ? "." : "…") + sans[k];
+}
+/* Глава study разворачивается в основную линию, ветки прямо от неё и
+   подварианты внутри веток. В тренировку по умолчанию идут только первые
+   два уровня — остальное ложится в r.extra: смотреть можно, учить не надо,
+   пока сам не попросишь (как «информационные» варианты на Chessable). */
+const subsOn = () => LS.get("kombi-op-subs", "0") === "1";
+const extraOf = r => r.extra || (r.extra = []);
+const lineKey = l => lineStart(l) + "|" + l.sans.join(" ");
 function collectLines(text){
   const r = op.rep, games = splitGames(text), out = [];
   let chapters = 0, dup = 0;
+  const have = {};
+  r.lines.concat(extraOf(r)).forEach(l => have[lineKey(l)] = 1);
   games.forEach(g => {
     const lines = pgnLines(g.body, g.fen);
     if (!lines.length) return;
     chapters++;
-    lines.forEach((ln, i) => {
-      const sans = ln.sans;
+    lines.forEach(ln => {
+      const sans = ln.sans, fk = ln.forks || [];
       const key = g.fen + "|" + sans.join(" ");
-      if (r.lines.some(l => lineStart(l) + "|" + l.sans.join(" ") === key)){ dup++; return; }
-      if (out.some(o => o.key === key)){ dup++; return; }
+      if (have[key]){ dup++; return; }
+      have[key] = 1;
       const auto = g.fen === START0 && CH.openingName ? CH.openingName(sans) : "";
       const base = g.name || auto || "Вариант";
+      /* имя — цепочка ходов, которыми линия сворачивала: «5…Nc6 → 6…Bd6 → 10…e5» */
+      const path = fk.map(k => moveTag(g.fen, sans, k)).join(" → ");
+      const name = lines.length < 2 ? base : base + " · " + (path || "основная");
       out.push({ key, group: g.name || "", start: g.fen, sans,
-                 notes: ln.notes || {}, glyphs: ln.glyphs || {},
-                 name: base + (lines.length > 1 ? " · ветка " + (i + 1) : "") });
+                 notes: ln.notes || {}, glyphs: ln.glyphs || {}, name,
+                 sub: fk.length > 1, fork: fk.length ? fk[fk.length - 1] : 0 });
     });
   });
   return { cands: out, chapters, dup };
 }
-function pushLine(c){
-  op.rep.lines.push({ id:uid(), group:c.group, start:c.start, name:c.name, sans:c.sans,
+function pushLine(c, view){
+  const l = { id:uid(), group:c.group, start:c.start, name:c.name, sans:c.sans,
     notes: c.notes || {}, glyphs: c.glyphs || {},
-    ev: c.ev == null ? null : c.ev, st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } });
+    ev: c.ev == null ? null : c.ev, st:{ reps:0, runs:0, errs:0, due:0, step:0, last:0 } };
+  if (c.sub){ l.sub = true; l.fork = c.fork || 0; }
+  (view ? extraOf(op.rep) : op.rep.lines).push(l);
 }
 async function addPgnText(text){
-  const { cands, chapters, dup } = collectLines(text);
-  if (!cands.length){
+  const { cands: all, chapters, dup } = collectLines(text);
+  if (!all.length){
     toast(dup ? "Всё это уже есть в дебюте." : "Не нашёл ходов — проверь запись.", !dup);
     return 0;
   }
+  /* подварианты мимо движка — их не учат, а только смотрят */
+  const views = subsOn() ? [] : all.filter(c => c.sub);
+  const cands = subsOn() ? all : all.filter(c => !c.sub);
+  views.forEach(c => pushLine(c, true));
   let skipped = [], list = cands;
-  if (checkOn() && CH.engine){
+  if (checkOn() && CH.engine && cands.length){
     const res = await evalCands(cands, op.rep.side);
     hideCheck();
     if (res === true || res === "abort"){
@@ -5074,15 +5222,16 @@ async function addPgnText(text){
       list = cands.filter(c => c.ev == null || c.ev >= t);
     } else toast("Движок не загрузился — добавляю без проверки.", 1);
   }
-  list.forEach(pushLine);
+  list.forEach(c => pushLine(c));
   saveReps(); renderRep(); renderList();
   op.skipped = skipped;
   renderSkip();
   let msg = "Добавлено " + list.length + " " + wordVar(list.length) +
             (chapters > 1 ? " из " + chapters + " глав" : "");
   if (skipped.length) msg += " · отсеяно " + skipped.length;
+  if (views.length) msg += " · ещё " + views.length + " " + wordSub(views.length) + " — для просмотра";
   toast(msg);
-  return list.length;
+  return list.length + views.length;
 }
 function renderSkip(){
   const box = $$("opSkip"), list = op.skipped || [];
@@ -5096,7 +5245,7 @@ function renderSkip(){
     `<div class="oprow" style="margin-bottom:0"><button class="ghost" id="opSkipAdd">Всё равно добавить</button>` +
     `<button class="ghost" id="opSkipHide">Скрыть</button></div>`;
   $$("opSkipAdd").onclick = () => {
-    list.forEach(pushLine);
+    list.forEach(c => pushLine(c));
     op.skipped = [];
     saveReps(); renderRep(); renderList();
     toast("Добавил " + list.length + " " + wordVar(list.length));
@@ -5570,6 +5719,12 @@ function syncCheck(){
   });
 }
 bindCheck("opChkOn1", "opChkLvl1");
+["opSubsOn1", "opSubsOn2"].forEach(id => {
+  const c = $$(id); if (!c) return;
+  c.checked = subsOn();
+  c.onchange = () => { LS.set("kombi-op-subs", c.checked ? "1" : "0");
+    ["opSubsOn1", "opSubsOn2"].forEach(x => { if ($$(x)) $$(x).checked = c.checked; }); };
+});
 bindCheck("opChkOn2", "opChkLvl2");
 
 $$("opEFlip").onclick = () => { op.flip = !op.flip; renderEdit(); };
@@ -5617,6 +5772,15 @@ $$("opTree").addEventListener("click", e => {
   if (b.dataset.train){
     const l = lineById(op.rep, b.dataset.train);
     if (l) startTrain(op.rep, "one", l.id);
+    return;
+  }
+  if (b.dataset.view){
+    viewSub(op.rep, extraOf(op.rep).find(l => l.id === b.dataset.view));
+    return;
+  }
+  if (b.dataset.learn){
+    const l = extraOf(op.rep).find(x => x.id === b.dataset.learn);
+    if (l){ moveSubs(op.rep, [l], true); toast("Подвариант теперь в тренировке"); }
     return;
   }
   if (b.dataset.del){

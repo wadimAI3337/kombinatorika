@@ -733,6 +733,27 @@ body.wide .crumb{margin-bottom:12px}
 .optoast.bad{background:var(--bad); color:#fff}
 
 .optree{display:flex; flex-direction:column; gap:12px}
+.opsubs{margin-top:16px; background:var(--surface); border:1px dashed var(--line); border-radius:12px; padding:12px 13px}
+.opsubhead{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px}
+.opsubhead b{font-size:14.5px}
+.opsubhead span{display:block; font-size:11.5px; color:var(--ink-3)}
+.opsubhead .sp{flex:1}
+.opsubhead button, .opsubrow button{padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px}
+.opsubhead button:hover, .opsubrow button:hover{border-color:var(--accent)}
+.opsubrow button.go{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.opsubgrp{border-top:1px solid var(--line)}
+.opsubtop{display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; padding:9px 2px; font-size:13.5px}
+.opsubtop i{font-style:normal; display:inline-block; width:10px; transition:transform .15s; color:var(--ink-3)}
+.opsubgrp.open .opsubtop i{transform:rotate(90deg)}
+.opsubtop span{margin-left:auto; font-size:11.5px; color:var(--ink-3)}
+.opsubrows{display:none; flex-direction:column; gap:6px; padding:0 0 10px 18px}
+.opsubgrp.open .opsubrows{display:flex}
+.opsubrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:var(--surface-2);
+          border-radius:10px; padding:8px 10px}
+.opsubrow .lb{flex:1; min-width:180px}
+.opsubrow .nm{font-size:13.5px; font-weight:600}
+.opsubrow .mv{font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--ink-3);
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; max-width:100%}
 .optreebox{background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:12px 14px}
 .optrhead{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:9px;
           padding-bottom:9px; border-bottom:1px solid var(--line-2)}
@@ -753,6 +774,10 @@ body.wide .crumb{margin-bottom:12px}
               text-overflow:ellipsis; white-space:nowrap}
 .optr .leaf .go{padding:3px 9px; border:1px solid var(--line); border-radius:7px; font-size:11.5px}
 .optr .leaf .go:hover{border-color:var(--accent); color:var(--accent)}
+.optr .leaf.view{opacity:.72}
+.optr .leaf.view b{font-style:italic; font-weight:500}
+.optr .leaf [data-learn]{padding:3px 9px; border:1px solid var(--line); border-radius:7px; font-size:11.5px}
+.optr .leaf [data-learn]:hover{border-color:var(--accent); color:var(--accent)}
 .optr .add{padding:2px 7px; border:1px dashed var(--line); border-radius:6px; font-size:11px; color:var(--ink-3)}
 .optr .add:hover{border-color:var(--accent); color:var(--accent)}
 .opfork{margin:9px 0 0; font-size:12px; color:var(--accent); background:var(--accent-soft);
@@ -1234,7 +1259,8 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
       </div>
       <div class="opio" id="opLoadBox">
         <div class="opiolab">Загрузить дебют по ссылке: study с lichess (целиком или одна глава), PGN или просто ходы.
-          Каждая глава станет группой, каждая ветка — вариантом.</div>
+          Каждая глава станет группой: в тренировку пойдут основная линия и ветки от неё,
+          подварианты внутри веток — отдельным списком, только посмотреть.</div>
         <textarea id="opLoadText" spellcheck="false" style="min-height:74px"
           placeholder="https://lichess.org/study/fEW0zkct"></textarea>
         <input class="opinput" id="opLoadFolder" list="opFolders" spellcheck="false"
@@ -1246,6 +1272,8 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
           </div>
           <label class="opcheck"><input type="checkbox" id="opChkOn1" checked>
             отсеивать линии, где движок даёт плохо за меня</label>
+          <label class="opcheck"><input type="checkbox" id="opSubsOn1">
+            подварианты тоже учить</label>
           <select class="opsel" id="opChkLvl1">
             <option value="-80">строго (−0.8)</option>
             <option value="-150" selected>обычно (−1.5)</option>
@@ -1350,14 +1378,18 @@ body.zen .boardarea .bwrap{max-width:none; height:100%}
       <div class="opskip gone" id="opSkip"></div>
       <div class="oplines" id="opLines"></div>
       <div class="optree gone" id="opTree"></div>
+      <div class="opsubs gone" id="opSubs"></div>
       <div class="opio gone" id="opPgnBox">
         <div class="opiolab">Ссылка на study с lichess (целиком или одна глава), PGN или просто ходы.
-          Каждая ветка в скобках станет отдельным вариантом, глава — своей группой.</div>
+          Основная линия и ветки от неё станут вариантами, глава — своей группой;
+          подварианты внутри веток лягут отдельным списком, только посмотреть.</div>
         <textarea id="opPgnText" spellcheck="false" placeholder="https://lichess.org/study/bnCq4MLp&#10;или&#10;1. e4 c5 2. Nf3 d6 (2... Nc6 3. d4 cxd4) 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6"></textarea>
         <div class="oprow">
           <button class="rvgo" id="opPgnAdd">Добавить варианты</button>
           <label class="opcheck"><input type="checkbox" id="opChkOn2" checked>
             отсеивать плохие за меня</label>
+          <label class="opcheck"><input type="checkbox" id="opSubsOn2">
+            подварианты тоже учить</label>
           <select class="opsel" id="opChkLvl2">
             <option value="-80">строго (−0.8)</option>
             <option value="-150" selected>обычно (−1.5)</option>
