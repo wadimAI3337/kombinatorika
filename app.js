@@ -5009,16 +5009,61 @@ function editEval(fen){
   if (!CH.engine) return;
   CH.engine.load().then(ok => {
     if (!ok){ box.innerHTML = '<span class="lb">Движок</span> не загрузился — нужен интернет.'; return; }
-    const cur = fen;
-    const draw = (e, dep) => {
-      if (!op.edit || editNodes()[op.edit.i].fen !== cur || !e) return;
-      setBar("opEBar", e, cur, op.flip, "");
-      const best = e.pv[0] && makeMove(cur, e.pv[0].slice(0,2), e.pv[0].slice(2,4), e.pv[0][4]);
-      box.innerHTML = '<span class="lb">Движок · глубина ' + dep + '</span><span class="ev">' +
-        CH.evalStr(e, cur, "w") + "</span> " + (best ? "лучший ход " + figurine(best.san, CH.turnOf(cur)) : "");
+    const cur = fen, n = engLines();
+    const draw = (pvs, dep) => {
+      pvs = (pvs || []).filter(Boolean);
+      if (!op.edit || editNodes()[op.edit.i].fen !== cur || !pvs.length) return;
+      setBar("opEBar", pvs[0], cur, op.flip, "");
+      op.edit.pvs = pvs;
+      box.innerHTML = engHead("Движок · глубина " + dep) +
+        pvs.map((e, li) => '<div class="opeline"><span class="ev">' + CH.evalStr(e, cur, "w") + "</span>" +
+          pvButtons(cur, e.pv, 10, li) + "</div>").join("") +
+        '<p class="rvhint">Клик по ходу в линии — сыграть её на доске до этого места и смотреть дальше.</p>';
     };
-    CH.engine.go(cur, 20, 1, j => draw(j.pvs[0], j.depth), 9000).then(r => draw(r.pvs[0], r.depth));
+    CH.engine.go(cur, 20, n, j => draw(j.pvs, j.depth), 6000 + 2000 * n).then(r => draw(r.pvs, r.depth));
   });
+}
+/* сколько линий движка показывать при разборе дебюта: 1, 3 или 5 */
+const engLines = () => { const v = +LS.get("kombi-op-mpv", "3"); return [1, 3, 5].indexOf(v) >= 0 ? v : 3; };
+function engHead(lab){
+  return '<div class="opehead"><span class="lb">' + lab + '</span><span class="sp"></span>' +
+    [1, 3, 5].map(k => `<button class="${k === engLines() ? "on" : ""}" data-mpv="${k}">${k}</button>`).join("") +
+    '<span class="opeunit">' + (engLines() === 1 ? "линия" : "линии") + "</span></div>";
+}
+function pvButtons(fen, ucis, max, li){
+  let f = fen, out = [], k = 0;
+  for (const u of ucis || []){
+    if (k >= max) break;
+    const mv = makeMove(f, u.slice(0, 2), u.slice(2, 4), u[4]);
+    if (!mv) break;
+    const m = f.split(" "), white = m[1] === "w";
+    if (white || !k) out.push('<span class="num">' + (+m[5] || 1) + (white ? "." : "…") + "</span>");
+    out.push(`<button class="pvm" data-li="${li}" data-k="${k}">${figurine(mv.san, white ? "w" : "b")}</button>`);
+    f = mv.fen; k++;
+  }
+  return out.join("");
+}
+/* сыграть линию движка до хода k: ходы встают в разбираемый вариант с текущего места */
+function playPv(li, k){
+  const e = op.edit && op.edit.pvs && op.edit.pvs[li];
+  if (!e) return;
+  flushNote();
+  let fen = editNodes()[op.edit.i].fen;
+  const add = [];
+  for (let n = 0; n <= k && n < e.pv.length; n++){
+    const u = e.pv[n], mv = makeMove(fen, u.slice(0, 2), u.slice(2, 4), u[4]);
+    if (!mv) break;
+    add.push(mv.san); fen = mv.fen;
+  }
+  if (!add.length) return;
+  const at = op.edit.i;
+  if (op.edit.sans.slice(at, at + add.length).join(" ") !== add.join(" ")){
+    trimNotes(at);
+    op.edit.sans = op.edit.sans.slice(0, at).concat(add);
+    op.edit.dirty = true;
+  }
+  op.edit.i = at + add.length;
+  op.sel = null; renderEdit();
 }
 function saveEdit(forceNew){
   flushNote();
@@ -5824,6 +5869,17 @@ $$("opTree").addEventListener("click", e => {
   }
 });
 $$("opECancel").onclick = () => { op.edit = null; renderRep(); opShow("rep"); };
+$$("opEEval").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || !op.edit) return;
+  if (b.dataset.mpv){
+    LS.set("kombi-op-mpv", b.dataset.mpv);
+    const ns = editNodes();
+    editEval(ns[clamp2(op.edit.i, 0, ns.length - 1)].fen);
+    return;
+  }
+  if (b.dataset.li != null) playPv(+b.dataset.li, +b.dataset.k);
+});
 $$("opEEngine").onclick = () => {
   op.edit.eng = !op.edit.eng;
   LS.set("kombi-op-eng", op.edit.eng ? "1" : "0");

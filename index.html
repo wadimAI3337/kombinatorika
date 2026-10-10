@@ -784,6 +784,19 @@ body.wide .crumb{margin-bottom:12px}
 .opfork{margin:9px 0 0; font-size:12px; color:var(--accent); background:var(--accent-soft);
         border:1px solid var(--accent); border-radius:9px; padding:7px 10px}
 
+.opehead{display:flex; align-items:center; gap:4px; margin-bottom:4px}
+.opehead .sp{flex:1}
+.opehead button{min-width:24px; padding:1px 7px; border:1px solid var(--line); border-radius:6px;
+                font-size:11.5px; color:var(--ink-3)}
+.opehead button:hover{border-color:var(--accent); color:var(--ink)}
+.opehead button.on{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700}
+.opeunit{font-size:11px; color:var(--ink-3); margin-left:3px}
+.opeline{display:flex; flex-wrap:wrap; align-items:baseline; gap:3px; padding:5px 0;
+         border-top:1px solid var(--line)}
+.opeline:first-of-type{border-top:0}
+.opeline .ev{min-width:48px; font-family:"JetBrains Mono",monospace; font-size:12.5px}
+.opeline .num{font-family:"JetBrains Mono",monospace; font-size:11.5px; color:var(--ink-3); margin-left:2px}
+.opeline .pvm{padding:1px 4px; border-radius:5px}
 #opECont .pvm.cur{background:var(--accent); color:var(--accent-ink); font-weight:700}
 
 .optoast.act{pointer-events:auto}
