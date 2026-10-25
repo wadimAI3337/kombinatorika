@@ -88,7 +88,21 @@ function loadSeed() {
       const s = window.REAL_SEED;
       if (!s || !s.games) { res(false); return; }
       s.games.forEach(g => { g.sansArr = g.sans.split(" "); });
-      SEED = s; res(true);
+      SEED = s;
+      /* общие подборки по FEN (real-public.js) — видны всем */
+      const pub = document.createElement("script");
+      pub.src = "real-public.js" + scriptVer();
+      const addPub = () => {
+        (window.REAL_PUBLIC || []).forEach(x => {
+          const side = x.fen.split(" ")[1];
+          if (SEED.games.some(g => g.pid === x.pid)) return;
+          SEED.games.push({ pid: x.pid, group: x.group, title: x.title, year: "", white: x.title, black: "", result: "*", hero: side, sans: "", sansArr: [],
+            start: x.fen, k: 0, ev: [x.ev], tags: tagsOf(x.fen, side === "w"), flags: [], fenOnly: true });
+        });
+        res(true);
+      };
+      pub.onload = addPub; pub.onerror = () => res(true);
+      document.body.appendChild(pub);
     };
     if (window.REAL_SEED) { done(); return; }
     const el = document.createElement("script");
