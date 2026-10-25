@@ -111,7 +111,7 @@ function nodesOf(g) {
   }
   return (g._nodes = out);
 }
-const heroName = g => g.heroName || g.group || (g.hero === "w" ? g.white : g.black);
+const heroName = g => g.fenOnly ? (g.hero === "w" ? "белых" : "чёрных") : g.heroName || g.group || (g.hero === "w" ? g.white : g.black);
 const sgn = side => side === "w" ? 1 : -1;
 const evAt = (g, i) => (g.ev[i] == null ? 0 : g.ev[i]) * sgn(g.hero);
 const champMoves = g => Math.ceil((g.sansArr.length - g.k) / 2);
@@ -554,8 +554,8 @@ function itemOf(meta, rec) {
   return {
     pid: meta.pid, gid: meta.gid, imported: true, mine: !!meta.mine, group: meta.col,
     heroName: meta.heroName, title: meta.title, year: meta.year, white: rec.h.White || "?", black: rec.h.Black || "?",
-    result: rec.h.Result || "*", hero: meta.hero, sans: rec.sans, sansArr: rec.sans.split(" "),
-    start: rec.start || START, k: meta.k, ev: rec.ev, tags: meta.tags || [], flags: meta.flags || [], missed: !!meta.missed
+    result: rec.h.Result || "*", hero: meta.hero, sans: rec.sans, sansArr: rec.sans ? rec.sans.split(" ") : [],
+    start: rec.start || START, fenOnly: !!meta.fenOnly, k: meta.k, ev: rec.ev, tags: meta.tags || [], flags: meta.flags || [], missed: !!meta.missed
   };
 }
 async function loadImported() {
@@ -770,20 +770,22 @@ function importCard() {
     <div class="rvseg rl-seg" id="rlKind">
       <button data-k="pgn" aria-pressed="${(o.kind || "pgn") === "pgn"}">PGN или ссылки</button>
       <button data-k="li" aria-pressed="${o.kind === "li"}">ник lichess</button>
-      <button data-k="cc" aria-pressed="${o.kind === "cc"}">ник chess.com</button></div>
+      <button data-k="cc" aria-pressed="${o.kind === "cc"}">ник chess.com</button>
+      <button data-k="fen" aria-pressed="${o.kind === "fen"}">позиция по FEN</button></div>
     <div id="rlSrcBox"></div>
-    <div class="rl-row">
+    <div class="rl-row rl-nofen">
       <label class="opcheck"><input type="checkbox" id="rlMe" ${o.meOn ? "checked" : ""}> это мои партии — искать перевесы, которые я упустил</label></div>
-    <div class="rl-row rl-me ${o.meOn ? "" : "gone"}"><input class="opinput" id="rlMeNick" placeholder="твой ник в этих партиях" value="${h(o.me || "")}" spellcheck="false"></div>
-    <div class="rl-row rl-hero ${o.meOn ? "gone" : ""}"><input class="opinput" id="rlHero" placeholder="Чьи победы брать — например Karpov (пусто — любые)" value="${h(o.hero || "")}" spellcheck="false"></div>
-    <div class="rl-row"><span class="rvhint" style="margin:0">Порог</span>
+    <div class="rl-row rl-me rl-nofen ${o.meOn ? "" : "gone"}"><input class="opinput" id="rlMeNick" placeholder="твой ник в этих партиях" value="${h(o.me || "")}" spellcheck="false"></div>
+    <div class="rl-row rl-hero rl-nofen ${o.meOn ? "gone" : ""}"><input class="opinput" id="rlHero" placeholder="Чьи победы брать — например Karpov (пусто — любые)" value="${h(o.hero || "")}" spellcheck="false"></div>
+    <div class="rl-row rl-nofen"><span class="rvhint" style="margin:0">Порог</span>
       <div class="rvseg" id="rlTh">${[[150, "+1.5"], [200, "+2"], [300, "+3"]].map(([v, t]) => `<button data-v="${v}" aria-pressed="${o.th === v}">${t}</button>`).join("")}</div>
       <span class="rvhint" style="margin:0">от</span>
       <select class="opsel" id="rlMin">${[20, 30, 40].map(v => `<option value="${v}"${o.min === v ? " selected" : ""}>${v} ходов</option>`).join("")}</select>
       <label class="opcheck"><input type="checkbox" id="rlSlow" ${o.slow ? "checked" : ""}> без блица</label></div>
-    <div class="rl-row"><input class="opinput" id="rlCol" placeholder="Название подборки — например «Карпов» или «Мои партии»" spellcheck="false"></div>
+    <div class="rl-row"><input class="opinput" id="rlCol" placeholder="Название подборки (папки) — например «Карпов» или «Мои партии»" spellcheck="false"></div>
+    <div class="rl-row rl-onlyfen gone"><input class="opinput" id="rlTitle" placeholder="Название позиции — например «Ладейник, мой разбор» (пусто — «Позиция 1», «Позиция 2»…)" spellcheck="false"></div>
     <div class="rl-row"><button class="rvgo" id="rlImpGo">Найти позиции</button><span class="rvhint" id="rlImpSay" style="margin:0"></span></div>
-    <p class="rvhint">Сначала сайт без движка выкидывает ничьи, блиц и короткие партии, потом Stockfish ищет момент, когда у
+    <p class="rvhint rl-nofen">Сначала сайт без движка выкидывает ничьи, блиц и короткие партии, потом Stockfish ищет момент, когда у
       победителя стало ${(o.th / 100).toFixed(1).replace(".0", "")} и выше и перевес устойчив. Партии, которые уже разбирали на lichess, идут без движка.
       Всё считается в фоне: закроешь вкладку — продолжится при следующем заходе. Одна и та же партия дважды не добавится.</p>
   </div>`;
@@ -792,7 +794,11 @@ function bindImport() {
   const o = S.imp;
   const box = () => {
     const k = o.kind || "pgn";
-    $("rlSrcBox").innerHTML = k === "pgn"
+    root.querySelectorAll(".rl-nofen").forEach(e => e.classList.toggle("gone", k === "fen" || (e.classList.contains("rl-me") && !o.meOn) || (e.classList.contains("rl-hero") && o.meOn)));
+    root.querySelectorAll(".rl-onlyfen").forEach(e => e.classList.toggle("gone", k !== "fen"));
+    $("rlSrcBox").innerHTML = k === "fen"
+      ? `<textarea class="rl-ta" id="rlSrc" spellcheck="false" placeholder="Вставь FEN или ссылку lichess (анализ / редактор) — по одной позиции в строке. Порог и число ходов не нужны: позиция добавится как есть."></textarea>`
+      : k === "pgn"
       ? `<textarea class="rl-ta" id="rlSrc" spellcheck="false" placeholder="Вставь PGN (можно сразу много партий) или ссылки на партии / study с lichess"></textarea>
          <div class="rl-row"><button class="ghost" id="rlFile">Взять из .pgn-файла</button><input type="file" id="rlFileIn" accept=".pgn,text/plain" multiple hidden><span class="rvhint" id="rlFileSay" style="margin:0"></span></div>`
       : `<div class="rl-row"><input class="opinput" id="rlNick" placeholder="ник на ${k === "li" ? "lichess" : "chess.com"}" value="${h(o["nick_" + k] || "")}" spellcheck="false">
@@ -812,7 +818,7 @@ function bindImport() {
   root.querySelectorAll("#rlKind button").forEach(b => b.onclick = () => {
     o.kind = b.dataset.k; save();
     root.querySelectorAll("#rlKind button").forEach(x => x.setAttribute("aria-pressed", x === b));
-    if (o.kind !== "pgn") { o.meOn = true; $("rlMe").checked = true; syncMe(); }
+    if (o.kind === "li" || o.kind === "cc") { o.meOn = true; $("rlMe").checked = true; syncMe(); }
     box();
   });
   const syncMe = () => { root.querySelector(".rl-me").classList.toggle("gone", !$("rlMe").checked); root.querySelector(".rl-hero").classList.toggle("gone", $("rlMe").checked); };
@@ -824,13 +830,14 @@ function bindImport() {
     const say = t => { $("rlImpSay").innerHTML = t; };
     if (jobRun && JOB && JOB.state === "run") { say("Уже идёт обработка — дождись или отмени её."); return; }
     const kind = o.kind || "pgn", me = $("rlMe").checked;
-    const nick = kind === "pgn" ? "" : ($("rlNick").value || "").trim();
-    if (kind !== "pgn") { if (!nick) { say("Нужен ник."); return; } o["nick_" + kind] = nick; o.n = +$("rlN").value; }
-    const meNick = me ? (($("rlMeNick").value || "").trim() || nick) : "";
-    if (me && !meNick) { say("Впиши свой ник — по нему сайт поймёт, за кого ты играл."); return; }
+    const nick = kind === "pgn" || kind === "fen" ? "" : ($("rlNick").value || "").trim();
+    if (kind === "li" || kind === "cc") { if (!nick) { say("Нужен ник."); return; } o["nick_" + kind] = nick; o.n = +$("rlN").value; }
+    const meNick = kind !== "fen" && me ? (($("rlMeNick").value || "").trim() || nick) : "";
+    if (kind !== "fen" && me && !meNick) { say("Впиши свой ник — по нему сайт поймёт, за кого ты играл."); return; }
     o.me = meNick; o.hero = me ? "" : ($("rlHero").value || "").trim(); save();
     const col = ($("rlCol").value || "").trim() || (me ? "Мои партии" : o.hero || "Подборка");
     const opts = { kind, nick, n: o.n, me: meNick, hero: o.hero, th: o.th, min: o.min, slow: o.slow };
+    if (kind === "fen") { await addFens($("rlSrc").value, ($("rlCol").value || "").trim() || "Позиции", ($("rlTitle").value || "").trim(), say); return; }
     $("rlImpGo").disabled = true;
     try {
       const list = await collect(kind === "pgn" ? $("rlSrc").value : "", opts, t => say('<span class="rvspin"></span> ' + h(t)));
@@ -844,6 +851,54 @@ function bindImport() {
       $("rlImpGo").disabled = false;
     }
   };
+}
+/* позиция по FEN: без порога и ходов — добавляется как есть, играешь за сторону, которой ходить */
+function fenOfText(t) {
+  let x = String(t).trim();
+  if (!x) return null;
+  if (/^https?:\/\//.test(x)) {
+    const m = /[?&]fen=([^&#\s]+)/.exec(x) || /lichess\.org\/(?:analysis|editor)(?:\/(?:standard|chess960))?\/([^?#\s]+)/i.exec(x);
+    if (!m) return null;
+    try { x = decodeURIComponent(m[1]); } catch (e) { x = m[1]; }
+    x = x.replace(/_/g, " ");
+  }
+  const f = x.split(/\s+/);
+  if (f[0].split("/").length !== 8) return null;
+  const fen = [f[0], /^[wb]$/.test(f[1]) ? f[1] : "w", f[2] || "-", f[3] || "-", /^\d+$/.test(f[4]) ? f[4] : "0", /^\d+$/.test(f[5]) ? f[5] : "1"].join(" ");
+  try { if (!/^[1-8pnbrqkPNBRQK\/]+$/.test(f[0]) || !(f[0].match(/k/) && f[0].match(/K/)) || !anyLegal(fen)) return null; } catch (e) { return null; }
+  return fen;
+}
+async function addFens(text, col, title, say) {
+  const lines = String(text).split(/\n+/).map(x => x.trim()).filter(Boolean);
+  if (!lines.length) { say("Вставь FEN или ссылку."); return; }
+  const ok = [], bad = [];
+  lines.forEach(l => { const f = fenOfText(l); if (f) ok.push(f); else bad.push(l); });
+  if (!ok.length) { say("Не разобрал FEN: " + h(bad[0].slice(0, 80))); return; }
+  $("rlImpGo").disabled = true;
+  let added = 0, dup = 0, n = Object.values(S.lib).filter(m => m.col === col && m.fenOnly).length;
+  for (const fen of ok) {
+    const gid = await sha("fen|" + fen + "|" + col), pid = "i" + gid;
+    if (S.lib[pid]) { dup++; continue; }
+    n++;
+    const name = title ? (ok.length > 1 ? title + " " + n : title) : "Позиция " + n;
+    const side = sideOf(fen);
+    let rec = await DB.get("games", gid);
+    if (!rec) {
+      let cp = 0;
+      try { await E.load(); const r = await E.go({ fen, depth: D1, multipv: 1 }); const c = cpOf(r.pvs[0]); cp = side === "w" ? c : -c; } catch (e) {}
+      rec = { id: gid, sans: "", h: { White: name, Black: "", Result: "*", Date: "", Event: "" }, ev: [cp], pv: {}, d: [D1, D2], start: fen };
+      await DB.put("games", rec); cloudPut(rec);
+    }
+    S.lib[pid] = { pid, gid, k: 0, hero: side, col, mine: false, missed: false, fenOnly: true, heroName: "", title: name, year: "",
+      tags: tagsOf(fen, side === "w"), flags: [], added: Date.now() };
+    save();
+    IMP.push(itemOf(S.lib[pid], rec));
+    added++;
+  }
+  $("rlImpGo").disabled = false;
+  if (!added) { say("Эти позиции уже есть в подборке «" + h(col) + "»."); return; }
+  scope.col = col; scope.tag = ""; scope.page = 0;
+  go("lib");
 }
 async function dropCol(col) {
   if (!confirm(`Убрать подборку «${col}» из библиотеки? Твои сыгранные партии и задачи останутся.`)) return;
@@ -1106,15 +1161,15 @@ function renderPos(pid) {
   root.innerHTML = crumb(h(g.title)) +
     `<div class="rvgrid"><div class="rvboardbox">
       <div class="rvtools"><span class="who">${PV.i === g.k ? "Тренировочная позиция" : "Ход партии " + Math.ceil(PV.i / 2)}</span>
-        <div class="sp"></div><span class="who">${h(g.white)} — ${h(g.black)}</span></div>
+        <div class="sp"></div><span class="who">${g.fenOnly ? "" : h(g.white) + " — " + h(g.black)}</span></div>
       <div class="rvbwrap"><div class="rvebar" id="rlBar"><i></i><b></b></div><div class="boardgrid" id="rlBoard"></div></div>
       <div class="rvnav"><button id="rlF">⏮</button><button id="rlP">◀</button><button id="rlN">▶</button><button id="rlL" title="К тренировочной позиции">⏭</button></div>
-      <p class="rvhint">Партию можно пролистать до тренировочной позиции. Что было дальше — откроется после твоей попытки.</p>
+      ${g.fenOnly ? "" : '<p class="rvhint">Партию можно пролистать до тренировочной позиции. Что было дальше — откроется после твоей попытки.</p>'}
     </div>
     <div class="rvpanel">
       <div class="rvcard"><h4>Тренировочная позиция</h4>
         <div class="rl-big">${h(g.title)}${g.year ? " · " + h(g.year) : ""}</div>
-        <p class="rl-p">Ход ${g.hero === "w" ? "белых" : "чёрных"}. Играешь за <b>${h(heroName(g))}</b> —
+        <p class="rl-p">Ход ${g.hero === "w" ? "белых" : "чёрных"}. Играешь за <b>${h(g.fenOnly ? (g.hero === "w" ? "белых" : "чёрных") : heroName(g))}</b> —
           оценка Stockfish <b>${evTxt(evAt(g, g.k))}</b>. Задача — довести до победы.</p>
         <div class="tg rl-tags">${(g.tags || []).map(t => `<span>${h(t)}</span>`).join("")}</div>
         ${g.ka != null && g.ka !== g.k ? `<p class="rvhint">Алгоритм поставил бы точку на ${Math.floor(g.ka / 2) + 1}-м ходу, тренер — на ${Math.floor(g.k / 2) + 1}-м.</p>` : ""}
@@ -1123,7 +1178,7 @@ function renderPos(pid) {
       <div class="rvcard"><div class="rvacts" style="margin-top:0">
         <button class="go" id="rlPlay">Играть за ${h(heroName(g))} →</button>
         <button id="rlRev" title="Ты за проигрывающую сторону против сильного движка">Обратная сторона: защищаться за ${h(oppSide)}</button>
-        <button id="rlChamp">${g.mine ? "Как ты сыграл тогда" : "Как реализовал чемпион"}</button></div>
+        <button id="rlChamp"${g.fenOnly ? " hidden" : ""}>${g.mine ? "Как ты сыграл тогда" : "Как реализовал чемпион"}</button></div>
         <p class="rvhint">Полную партию лучше смотреть после своей попытки.</p></div>
       ${rs.length ? `<div class="rvcard"><h4>Попытки</h4><div class="rl-hist">${rs.map(histRow).join("")}</div></div>` : ""}
     </div></div>`;
@@ -1215,7 +1270,7 @@ function stopGame() {
 const gFen = () => G.fens[G.fens.length - 1];
 function renderPlay() {
   if (!G) { go("lib"); return; }
-  const g = G.item, oppName = G.user === g.hero ? (g.hero === "w" ? g.black : g.white) : heroName(g);
+  const g = G.item, oppName = G.user === g.hero ? (g.fenOnly ? "Stockfish" : g.hero === "w" ? g.black : g.white) : heroName(g);
   root.innerHTML = crumb(G.rev ? "Защита" : "Партия", `<button data-rl="pos">${h(g.title)}</button>`) +
     `<div class="rvgrid"><div class="rvboardbox">
       <div class="rvtools"><button class="ghost" id="rlFlip">⇅ Перевернуть</button><div class="sp"></div>
@@ -1478,7 +1533,7 @@ function renderRep() {
     `<div class="rvgrid"><div class="rvboardbox">
       <div class="rvtools"><div class="rvseg" id="rlSrc">
         <button data-s="me" aria-pressed="${REP.src === "me"}">Твоя партия</button>
-        <button data-s="ch" aria-pressed="${REP.src === "ch"}">Как сыграл ${h(heroName(g))}</button></div>
+        ${g.fenOnly ? "" : `<button data-s="ch" aria-pressed="${REP.src === "ch"}">Как сыграл ${h(heroName(g))}</button>`}</div>
         <div class="sp"></div><span class="who" id="rlWhere"></span></div>
       <div class="rvbwrap"><div class="rvebar" id="rlBar"><i></i><b></b></div><div class="boardgrid" id="rlBoard"></div></div>
       <div class="rvnav"><button id="rlF">⏮</button><button id="rlP">◀</button><button id="rlN">▶</button><button id="rlL">⏭</button></div>
