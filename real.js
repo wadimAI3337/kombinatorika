@@ -88,21 +88,7 @@ function loadSeed() {
       const s = window.REAL_SEED;
       if (!s || !s.games) { res(false); return; }
       s.games.forEach(g => { g.sansArr = g.sans.split(" "); });
-      SEED = s;
-      /* общие подборки по FEN (real-public.js) — видны всем */
-      const pub = document.createElement("script");
-      pub.src = "real-public.js" + scriptVer();
-      const addPub = () => {
-        (window.REAL_PUBLIC || []).forEach(x => {
-          const side = x.fen.split(" ")[1];
-          if (SEED.games.some(g => g.pid === x.pid)) return;
-          SEED.games.push({ pid: x.pid, group: x.group, title: x.title, year: "", white: x.title, black: "", result: "*", hero: side, sans: "", sansArr: [],
-            start: x.fen, k: 0, ev: [x.ev], tags: tagsOf(x.fen, side === "w"), flags: [], fenOnly: true });
-        });
-        res(true);
-      };
-      pub.onload = addPub; pub.onerror = () => res(true);
-      document.body.appendChild(pub);
+      SEED = s; res(true);
     };
     if (window.REAL_SEED) { done(); return; }
     const el = document.createElement("script");
@@ -556,6 +542,23 @@ async function cloudPut(rec) {
     if (r.error) cloudErr(r.error);
   } catch (e) {}
 }
+/* всё, что добавляет владелец сайта, становится общим: строка pub|pid в real_cache (читают все) */
+const isOwner = () => { const u = window.kombiSync && window.kombiSync.user && window.kombiSync.user(); return !!(u && /^wadim3337/i.test(u.email || "")); };
+async function publish(meta, rec) {
+  const c = sbc(); if (!c || cloudOff || !isOwner()) return;
+  try {
+    const r = await c.from("real_cache").upsert({ gid: "pub|" + meta.pid, data: { meta, rec } }, { onConflict: "gid", ignoreDuplicates: true });
+    if (r.error) cloudErr(r.error);
+  } catch (e) {}
+}
+async function loadPublic() {
+  const c = sbc(); if (!c || cloudOff) return [];
+  try {
+    const r = await c.from("real_cache").select("data").like("gid", "pub|%").limit(1000);
+    if (r.error) { cloudErr(r.error); return []; }
+    return (r.data || []).map(x => x.data).filter(x => x && x.meta && x.rec);
+  } catch (e) { return []; }
+}
 async function sha(s) {
   try {
     const b = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s));
@@ -587,8 +590,14 @@ async function loadImported() {
       }
     }
   }
+  const ownCount = out.length;
+  if (isOwner()) for (const it of out) { const m = S.lib[it.pid]; const rec = await DB.get("games", m.gid); if (rec) publish(m, rec); }
+  for (const x of await loadPublic()) {
+    if (S.lib[x.meta.pid] || out.some(o => o.pid === x.meta.pid)) continue;
+    out.push(Object.assign(itemOf(x.meta, x.rec), { shared: true }));
+  }
   IMP = out.concat(IMP.filter(g => !out.some(x => x.pid === g.pid)));
-  IMP.missing = metas.length - out.length;
+  IMP.missing = metas.length - ownCount;
 }
 
 /* --- источники --- */
@@ -752,6 +761,7 @@ async function processOne(pgn, job) {
     tags: tagsOf(fens[pt.k], hero === "w").concat(o.me && !won ? ["упущено"] : []), flags: pt.flags, added: Date.now()
   };
   save();
+  publish(S.lib[pid], rec);
   IMP.push(itemOf(S.lib[pid], rec));
   job.found++;
 }
@@ -906,6 +916,7 @@ async function addFens(text, col, title, say) {
     S.lib[pid] = { pid, gid, k: 0, hero: side, col, mine: false, missed: false, fenOnly: true, heroName: "", title: name, year: "",
       tags: tagsOf(fen, side === "w"), flags: [], added: Date.now() };
     save();
+    publish(S.lib[pid], rec);
     IMP.push(itemOf(S.lib[pid], rec));
     added++;
   }
