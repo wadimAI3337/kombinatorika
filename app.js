@@ -4250,7 +4250,7 @@ function opShow(v){
   window.scrollTo(0, 0);
 }
 function openOpenings(){ show("open"); loadReps(); renderList(); opShow("list");
-  pubReps(); pullShared().then(ch => { if (ch && op.view === "list") renderList(); }); }
+  pubReps(); setTimeout(pubReps, 5000); pullShared().then(ch => { if (ch && op.view === "list") renderList(); }); }
 window.openOpenings = openOpenings;
 
 /* ---------- список дебютов ---------- */
