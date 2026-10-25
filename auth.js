@@ -461,6 +461,12 @@
       t.onload = t.onerror = function () {
         var r = document.createElement("script");
         r.src = "real.js" + (VER ? "?v=" + VER : "");
+        /* адреса экранов и «Назад» — когда все разделы на месте */
+        r.onload = r.onerror = function () {
+          var n = document.createElement("script");
+          n.src = "router.js" + (VER ? "?v=" + VER : "");
+          document.body.appendChild(n);
+        };
         document.body.appendChild(r);
       };
       document.body.appendChild(t);

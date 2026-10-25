@@ -997,7 +997,9 @@
     paintNav(true);
     render();
     refresh(false);
+    if (window.kNavPing) window.kNavPing();
   }
+  window.kombiOpenStats = openStats;
 
   function paintNav(on) {
     var b = document.getElementById("navStats");

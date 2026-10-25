@@ -4248,10 +4248,23 @@ function opShow(v){
   document.querySelectorAll(".opc").forEach(e => e.classList.toggle("gone", !hasRep));
   $$("opCrumbRep").textContent = op.rep ? ((op.rep.folder ? op.rep.folder + " / " : "") + op.rep.name) : "";
   window.scrollTo(0, 0);
+  if (window.kNavPing) window.kNavPing();
 }
 function openOpenings(){ show("open"); loadReps(); renderList(); opShow("list");
   pubReps(); setTimeout(pubReps, 5000); pullShared().then(ch => { if (ch && op.view === "list") renderList(); }); }
 window.openOpenings = openOpenings;
+/* для адресов (router.js): где мы сейчас и как сюда вернуться. Дебют ищем
+   по id заново — openOpenings перечитывает репертуар, старый объект устарел */
+window.kombiOp = {
+  where(){
+    const r = op.rep, v = op.view;
+    if (v === "list" || !r) return ["open", openOpenings];
+    const id = r.id;
+    return ["open/" + encodeURIComponent(id) + (v === "rep" ? "" : "/" + v), () => window.kombiOp.go(id)];
+  },
+  go(id){ openOpenings(); const r = id && reps.find(x => x.id === id); if (r) openRep(r); },
+  leave(){ op.train = null; op.edit = null; }
+};
 
 /* ---------- список дебютов ---------- */
 function repCard(r){

@@ -995,9 +995,10 @@ async function open(v, arg) {
   if (!open.loaded) { open.loaded = true; await loadImported(); }
   go(v, arg);
 }
+let lastArg = null;
 function go(v, arg) {
   if (view === "rep" && v !== "rep") anaStop();
-  view = v;
+  view = v; lastArg = arg;
   window.scrollTo(0, 0);
   if (v === "lib") renderLib();
   else if (v === "pos") renderPos(arg);
@@ -1007,7 +1008,21 @@ function go(v, arg) {
   else if (v === "prof") renderProf();
   else if (v === "add") renderAdd();
   else if (v === "champ") renderChamp(arg);
+  if (window.kNavPing) window.kNavPing();
 }
+/* для адресов (router.js): #/real, #/real/pos/<pid>, #/real/prof … */
+window.kombiRealNav = {
+  where() {
+    const v = view, a = lastArg, pid = v === "pos" ? a : v === "champ" && a ? a.pid : "";
+    return [v === "lib" ? "real" : "real/" + v + (pid ? "/" + encodeURIComponent(pid) : ""), () => open(v, a)];
+  },
+  go(v, pid) {
+    if (v === "pos" && pid) open("pos", pid);
+    else if (v === "champ" && pid) open("champ", { pid, back: "pos" });
+    else if (["prof", "puz", "add"].indexOf(v) >= 0) open(v);
+    else open("lib");
+  }
+};
 const crumb = (here, mid) =>
   `<div class="crumb"><button data-rl="books">Мои сборники</button><span class="sep">/</span>` +
   (here ? `<button data-rl="lib">Реализация перевеса</button>` : `<span>Реализация перевеса</span>`) +
