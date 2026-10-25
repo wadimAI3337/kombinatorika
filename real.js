@@ -554,7 +554,7 @@ async function publish(meta, rec) {
 async function loadPublic() {
   const c = sbc(); if (!c || cloudOff) return [];
   try {
-    const r = await c.from("real_cache").select("data").like("gid", "pub|%").limit(1000);
+    const r = await c.from("real_cache").select("data").like("gid", "pub|%").not("gid", "like", "pub|op|%").limit(1000);
     if (r.error) { cloudErr(r.error); return []; }
     return (r.data || []).map(x => x.data).filter(x => x && x.meta && x.rec);
   } catch (e) { return []; }

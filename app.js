@@ -3914,7 +3914,64 @@ function loadReps(){
     r.extra.forEach(l => { l.start = l.start || START0; l.group = l.group || "";
       l.notes = l.notes || {}; l.glyphs = l.glyphs || {}; }); });
 }
-function saveReps(){ try { localStorage.setItem("kombi-op", JSON.stringify(reps)); } catch(e){} }
+function saveReps(){ try { localStorage.setItem("kombi-op", JSON.stringify(reps)); } catch(e){} pubSoon(); }
+
+/* ---------- общие дебюты ----------
+   Всё, что заводит владелец сайта, видят все: снимок его репертуара
+   (без прогресса) лежит в real_cache строкой pub|op|<хэш>, свежий берётся
+   последним. У остальных общий дебют появляется копией со своим
+   прогрессом; новые варианты владельца доезжают, прогресс не трогается.
+   Убранный руками общий дебют больше не возвращается. */
+const opSb = () => { try { return window.kombiSync && window.kombiSync.client ? window.kombiSync.client() : null; } catch(e){ return null; } };
+const opOwner = () => { const u = window.kombiSync && window.kombiSync.user && window.kombiSync.user(); return !!(u && /^wadim3337/i.test(u.email || "")); };
+const opGone = () => { try { const v = JSON.parse(LS.get("kombi-op-gone", "[]")); return Array.isArray(v) ? v : []; } catch(e){ return []; } };
+function forgetShared(r){ if (r && r.pub){ const g = opGone(); if (g.indexOf(r.id) < 0){ g.push(r.id); LS.set("kombi-op-gone", JSON.stringify(g)); } } }
+let pubTimer = 0;
+function pubSoon(){ clearTimeout(pubTimer); pubTimer = setTimeout(pubReps, 3000); }
+async function pubReps(){
+  const c = opSb();
+  if (!c || !opOwner()) return;
+  const snap = reps.filter(r => !r.pub && r.lines.length).map(r => ({ id:r.id, name:r.name, side:r.side, folder:r.folder || "", target:r.target,
+    lines: r.lines.map(l => Object.assign({}, l, { st: undefined })), extra: r.extra }));
+  if (!snap.length) return;
+  const s = JSON.stringify(snap);
+  let h = "";
+  try { h = [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16); }
+  catch(e){ return; }
+  if (LS.get("kombi-op-pub", "") === h) return;
+  try {
+    const r = await c.from("real_cache").upsert({ gid: "pub|op|" + h, data: { reps: JSON.parse(s) } }, { onConflict: "gid", ignoreDuplicates: true });
+    if (!r.error) LS.set("kombi-op-pub", h);
+  } catch(e){}
+}
+async function pullShared(){
+  const c = opSb();
+  if (!c || opOwner()) return false;
+  let shared;
+  try {
+    const r = await c.from("real_cache").select("data").like("gid", "pub|op|%").order("created_at", { ascending:false }).limit(1);
+    shared = r.data && r.data[0] && r.data[0].data && r.data[0].data.reps;
+  } catch(e){ return false; }
+  if (!Array.isArray(shared)) return false;
+  const gone = opGone(), fresh = () => ({ reps:0, runs:0, errs:0, due:0, step:0, last:0 });
+  let changed = false;
+  shared.forEach(s => {
+    if (!s || !s.id || gone.indexOf(s.id) >= 0) return;
+    const mine = reps.find(r => r.id === s.id);
+    if (!mine){
+      reps.push(Object.assign({}, s, { pub:true, cards:{}, made:Date.now(), lines: (s.lines || []).map(l => Object.assign({}, l, { st: fresh() })) }));
+      addFold(s.folder); changed = true; return;
+    }
+    const have = {};
+    mine.lines.forEach(l => { have[l.id] = 1; });
+    (s.lines || []).forEach(l => { if (!have[l.id]){ mine.lines.push(Object.assign({}, l, { st: fresh() })); changed = true; } });
+    const hx = {};
+    (mine.extra || []).forEach(l => { if (l.id) hx[l.id] = 1; });
+    (s.extra || []).forEach(l => { if (l.id && !hx[l.id]){ (mine.extra = mine.extra || []).push(l); changed = true; } });
+  });
+  if (changed){ saveReps(); loadReps(); }
+  return changed;
+}
 
 /* ---------- папки: уровень над дебютами ----------
    Дебют помнит имя своей папки, отдельно храним список папок — иначе
@@ -4192,7 +4249,8 @@ function opShow(v){
   $$("opCrumbRep").textContent = op.rep ? ((op.rep.folder ? op.rep.folder + " / " : "") + op.rep.name) : "";
   window.scrollTo(0, 0);
 }
-function openOpenings(){ show("open"); loadReps(); renderList(); opShow("list"); }
+function openOpenings(){ show("open"); loadReps(); renderList(); opShow("list");
+  pubReps(); pullShared().then(ch => { if (ch && op.view === "list") renderList(); }); }
 window.openOpenings = openOpenings;
 
 /* ---------- список дебютов ---------- */
@@ -4709,10 +4767,11 @@ function delGroup(g){
 function delRep(r){
   const i = reps.findIndex(x => x.id === r.id);
   if (i < 0) return;
-  reps.splice(i, 1);
+  reps.splice(i, 1); forgetShared(r);
   saveReps(); op.rep = null; renderList(); opShow("list");
   toast("Удалён дебют «" + r.name + "»", false, { t:"вернуть", f:() => {
-    reps.splice(Math.min(i, reps.length), 0, r); saveReps(); renderList(); } });
+    reps.splice(Math.min(i, reps.length), 0, r);
+    LS.set("kombi-op-gone", JSON.stringify(opGone().filter(x => x !== r.id))); saveReps(); renderList(); } });
 }
 
 /* ---------- общая доска раздела ---------- */
