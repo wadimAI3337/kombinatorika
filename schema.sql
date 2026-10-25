@@ -56,4 +56,8 @@ create policy "real_cache: читать всем"
 
 create policy "real_cache: добавлять с входом"
   on public.real_cache for insert
-  with check (auth.uid() is not null);
+  with check (
+    auth.uid() is not null
+    -- pub|… — общие позиции «Реализации», их добавляет только владелец сайта
+    and (gid not like 'pub|%' or (auth.jwt() ->> 'email') ilike 'wadim3337%')
+  );
