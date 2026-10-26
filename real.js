@@ -551,13 +551,14 @@ async function publish(meta, rec) {
     if (r.error) cloudErr(r.error);
   } catch (e) {}
 }
+/* null — не достучались (например, сразу после загрузки страницы, пока обновляется вход) */
 async function loadPublic() {
   const c = sbc(); if (!c || cloudOff) return [];
   try {
     const r = await c.from("real_cache").select("data").like("gid", "pub|%").not("gid", "like", "pub|op|%").limit(1000);
-    if (r.error) { cloudErr(r.error); return []; }
+    if (r.error) { cloudErr(r.error); return null; }
     return (r.data || []).map(x => x.data).filter(x => x && x.meta && x.rec);
-  } catch (e) { return []; }
+  } catch (e) { return null; }
 }
 async function sha(s) {
   try {
@@ -592,9 +593,16 @@ async function loadImported() {
   }
   const ownCount = out.length;
   if (isOwner()) for (const it of out) { const m = S.lib[it.pid]; const rec = await DB.get("games", m.gid); if (rec) publish(m, rec); }
-  for (const x of await loadPublic()) {
-    if (S.lib[x.meta.pid] || out.some(o => o.pid === x.meta.pid)) continue;
-    out.push(Object.assign(itemOf(x.meta, x.rec), { shared: true }));
+  const pub = await loadPublic();
+  for (const x of pub || []) {
+    /* своя запись могла потеряться в этом браузере — тогда берём общую */
+    if (out.some(o => o.pid === x.meta.pid)) continue;
+    out.push(Object.assign(itemOf(x.meta, x.rec), { shared: !S.lib[x.meta.pid] }));
+    if (S.lib[x.meta.pid]) DB.put("games", x.rec);
+  }
+  if (!pub && !(loadImported.retry > 2)) {
+    loadImported.retry = (loadImported.retry || 0) + 1;
+    setTimeout(async () => { await loadImported(); if (root && !root.classList.contains("gone") && view === "lib") renderLib(); }, 3000);
   }
   IMP = out.concat(IMP.filter(g => !out.some(x => x.pid === g.pid)));
   IMP.missing = metas.length - ownCount;
